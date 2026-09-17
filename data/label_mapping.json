@@ -1,0 +1,44 @@
+{
+  "pigment_network": {
+    "absent": 0,
+    "atypical": 1,
+    "typical": 2
+  },
+  "streaks": {
+    "absent": 0,
+    "irregular": 1,
+    "regular": 2
+  },
+  "pigmentation": {
+    "absent": 0,
+    "diffuse irregular": 1,
+    "diffuse regular": 2,
+    "localized irregular": 3,
+    "localized regular": 4
+  },
+  "regression_structures": {
+    "absent": 0,
+    "blue areas": 1,
+    "combinations": 2,
+    "white areas": 3
+  },
+  "dots_and_globules": {
+    "absent": 0,
+    "irregular": 1,
+    "regular": 2
+  },
+  "blue_whitish_veil": {
+    "absent": 0,
+    "present": 1
+  },
+  "vascular_structures": {
+    "absent": 0,
+    "arborizing": 1,
+    "comma": 2,
+    "dotted": 3,
+    "hairpin": 4,
+    "linear irregular": 5,
+    "within regression": 6,
+    "wreath": 7
+  }
+}
