@@ -13,12 +13,7 @@ except ImportError:
 
 
 class LetterboxResize:
-    """
-    Resize image preserving aspect ratio and symmetrically pad to target square size.
-    Prevents lesion distortion (stretching/compression) which could alter clinical
-    features like streaks, pigment networks, or lesion borders.
-    """
-
+    # Thay đổi kích thước ảnh giữ nguyên tỷ lệ khung hình và chèn viền đen đối xứng
     def __init__(self, target_size: Union[int, Tuple[int, int]] = (224, 224), fill_color=(0, 0, 0)):
         if isinstance(target_size, int):
             self.target_size = (target_size, target_size)
@@ -42,7 +37,7 @@ class LetterboxResize:
         return padded_img
 
 
-# Pure Python/PyTorch fallbacks when torchvision is not installed
+# Các lớp dự phòng dùng PIL thuần khi môi trường thiếu torchvision
 class PILRandomHorizontalFlip:
     def __init__(self, p: float = 0.5):
         self.p = p
@@ -76,9 +71,7 @@ class PILRandomRotation:
 class PILToTensor:
     def __call__(self, img: Image.Image) -> torch.Tensor:
         arr = np.array(img, dtype=np.float32) / 255.0
-        # HWC -> CHW
-        tensor = torch.from_numpy(arr).permute(2, 0, 1)
-        return tensor
+        return torch.from_numpy(arr).permute(2, 0, 1)
 
 
 class TensorNormalize:
@@ -101,10 +94,7 @@ class SimpleCompose:
 
 
 def get_transforms(split: str = "train", target_size: int = 224, augment: bool = True):
-    """
-    Returns transform pipeline for Derm7pt.
-    Supports torchvision if available, otherwise seamlessly falls back to pure PIL/Torch.
-    """
+    # Pipeline biến đổi ảnh cho Derm7pt (chuẩn hóa ImageNet)
     mean = [0.485, 0.456, 0.406]
     std = [0.229, 0.224, 0.225]
     is_train = split.lower() in ["train", "training"]
@@ -144,23 +134,11 @@ def get_transforms(split: str = "train", target_size: int = 224, augment: bool =
 
 
 if __name__ == "__main__":
-    print("=" * 60)
-    print("Running src/transforms.py directly as standalone script...")
-    print("=" * 60)
-
-    # Test LetterboxResize with a dummy 768x512 image
     dummy_img = Image.new("RGB", (768, 512), color=(200, 100, 50))
     letterbox = LetterboxResize((224, 224), fill_color=(128, 128, 128))
     out_img = letterbox(dummy_img)
+    assert out_img.size == (224, 224)
 
-    print(f"Original image size: {dummy_img.size}")
-    print(f"Letterbox output size: {out_img.size}")
-    assert out_img.size == (224, 224), "Size mismatch!"
-
-    # Test full pipeline
     train_tf = get_transforms("train", 224, augment=True)
     tensor_out = train_tf(dummy_img)
-    print(f"Transformed tensor shape: {tuple(tensor_out.shape)}")
-    print(f"Transformed tensor min/max: [{tensor_out.min():.3f}, {tensor_out.max():.3f}]")
-    print("[SUCCESS] src/transforms.py executed standalone successfully!")
-
+    print(f"Output shape: {tuple(tensor_out.shape)}")
