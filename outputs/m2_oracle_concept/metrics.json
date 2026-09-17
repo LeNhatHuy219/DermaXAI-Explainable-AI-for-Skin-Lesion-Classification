@@ -1,0 +1,45 @@
+{
+  "best_C": 0.1,
+  "train": {
+    "accuracy": 0.8401937046004843,
+    "balanced_accuracy": 0.85374957000344,
+    "precision_melanoma": 0.5895522388059702,
+    "recall_melanoma": 0.8777777777777778,
+    "f1_melanoma": 0.7053571428571429,
+    "roc_auc": 0.9294633642930856,
+    "confusion_matrix": {
+      "tn": 268,
+      "fp": 55,
+      "fn": 11,
+      "tp": 79
+    }
+  },
+  "valid": {
+    "accuracy": 0.8571428571428571,
+    "balanced_accuracy": 0.8558069729854536,
+    "precision_melanoma": 0.7222222222222222,
+    "recall_melanoma": 0.8524590163934426,
+    "f1_melanoma": 0.7819548872180451,
+    "roc_auc": 0.9283652736088663,
+    "confusion_matrix": {
+      "tn": 122,
+      "fp": 20,
+      "fn": 9,
+      "tp": 52
+    }
+  },
+  "test": {
+    "accuracy": 0.8354430379746836,
+    "balanced_accuracy": 0.853707819761568,
+    "precision_melanoma": 0.625,
+    "recall_melanoma": 0.8910891089108911,
+    "f1_melanoma": 0.7346938775510204,
+    "roc_auc": 0.9211120091600996,
+    "confusion_matrix": {
+      "tn": 240,
+      "fp": 54,
+      "fn": 11,
+      "tp": 90
+    }
+  }
+}
