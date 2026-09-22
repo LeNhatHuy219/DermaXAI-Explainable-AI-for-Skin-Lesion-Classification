@@ -1,8 +1,7 @@
-"""
-Comprehensive Data Pipeline Audit for ECBM Thesis.
-Run: python3 tests/audit_pipeline.py
-"""
-import os, sys, json, collections
+import collections
+import json
+import os
+import sys
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if PROJECT_ROOT not in sys.path:
@@ -10,20 +9,25 @@ if PROJECT_ROOT not in sys.path:
 
 import numpy as np
 import pandas as pd
+from PIL import Image
 import torch
 
 from src.dataset import (
-    CONCEPT_NAMES, CONCEPT_NUM_CLASSES, CONCEPT_OFFSETS,
-    TOTAL_CONCEPT_STATES, Derm7ptDataset, compute_diagnosis_weights,
+    CONCEPT_NAMES,
+    CONCEPT_NUM_CLASSES,
+    CONCEPT_OFFSETS,
+    TOTAL_CONCEPT_STATES,
+    Derm7ptDataset,
+    compute_diagnosis_weights,
     get_dataloaders,
 )
 from src.transforms import LetterboxResize, get_transforms
-from PIL import Image
 
 MANIFEST = os.path.join(PROJECT_ROOT, "data", "manifest.csv")
 MAPPING_FILE = os.path.join(PROJECT_ROOT, "data", "label_mapping.json")
 passed = 0
 failed = 0
+
 
 def check(name, condition, detail=""):
     global passed, failed
@@ -34,10 +38,6 @@ def check(name, condition, detail=""):
         print(f"  [FAIL] {name}  -- {detail}")
         failed += 1
 
-# =====================================================================
-print("=" * 70)
-print("  COMPREHENSIVE DATA PIPELINE AUDIT")
-print("=" * 70)
 
 # --- SECTION 1: Manifest Integrity ---
 print("\n[1] MANIFEST INTEGRITY")
@@ -97,6 +97,11 @@ for c_name in CONCEPT_NAMES:
     expected = list(range(CONCEPT_NUM_CLASSES[c_name]))
     check(f"  {c_name}: indices contiguous 0..{CONCEPT_NUM_CLASSES[c_name]-1}",
           indices == expected, f"Got {indices}")
+
+# Kiểm tra dtype cột is_inconsistent_profile phải là bool, tránh lỗi bool("False") = True
+check("is_inconsistent_profile dtype is bool",
+      df["is_inconsistent_profile"].dtype == bool,
+      f"Got dtype: {df['is_inconsistent_profile'].dtype}")
 
 # --- SECTION 3: One-Hot Encoding Correctness ---
 print("\n[3] ONE-HOT ENCODING CORRECTNESS")
@@ -267,12 +272,7 @@ mismatch = (recomputed_flags != df["is_inconsistent_profile"]).sum()
 check("is_inconsistent_profile recomputation matches", mismatch == 0,
       f"{mismatch} mismatches")
 
-# --- SUMMARY ---
-print("\n" + "=" * 70)
+# Summary
 total = passed + failed
-print(f"  AUDIT COMPLETE: {passed}/{total} checks passed, {failed} failed")
-if failed == 0:
-    print("  [SUCCESS] PIPELINE IS FULLY VERIFIED AND READY FOR MODELING")
-else:
-    print("  [WARN] FIX THE FAILED CHECKS BEFORE PROCEEDING")
-print("=" * 70)
+print(f"\nAudit complete: {passed}/{total} checks passed, {failed} failed.")
+

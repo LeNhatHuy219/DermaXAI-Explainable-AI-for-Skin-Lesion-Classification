@@ -13,7 +13,7 @@ try:
 except (ImportError, ValueError):
     from transforms import get_transforms
 
-# Standard Concept Definitions for Derm7pt (7-Point Checklist)
+# Danh sách 7 nhóm khái niệm lâm sàng theo bảng kiểm Derm7pt
 CONCEPT_NAMES: List[str] = [
     "pigment_network",
     "streaks",
@@ -24,7 +24,7 @@ CONCEPT_NAMES: List[str] = [
     "vascular_structures",
 ]
 
-# Number of discrete states per concept group
+# Số lượng trạng thái rời rạc của từng nhóm khái niệm
 CONCEPT_NUM_CLASSES: Dict[str, int] = {
     "pigment_network": 3,
     "streaks": 3,
@@ -35,9 +35,10 @@ CONCEPT_NUM_CLASSES: Dict[str, int] = {
     "vascular_structures": 8,
 }
 
-TOTAL_CONCEPT_STATES: int = sum(CONCEPT_NUM_CLASSES.values())  # 28 states
+# Tổng số 28 trạng thái khái niệm
+TOTAL_CONCEPT_STATES: int = sum(CONCEPT_NUM_CLASSES.values())
 
-# Precompute starting offset for each concept in the 28-dimensional one-hot vector
+# Vị trí bắt đầu (offset) của từng nhóm trong vector one-hot 28 chiều
 CONCEPT_OFFSETS: Dict[str, int] = {}
 _offset = 0
 for name in CONCEPT_NAMES:
@@ -45,49 +46,10 @@ for name in CONCEPT_NAMES:
     _offset += CONCEPT_NUM_CLASSES[name]
 
 
-# Default fallback label mapping if JSON is not passed
-DEFAULT_LABEL_MAPPING: Dict[str, Dict[str, int]] = {
-    "pigment_network": {"absent": 0, "atypical": 1, "typical": 2},
-    "streaks": {"absent": 0, "irregular": 1, "regular": 2},
-    "pigmentation": {
-        "absent": 0,
-        "diffuse irregular": 1,
-        "diffuse regular": 2,
-        "localized irregular": 3,
-        "localized regular": 4,
-    },
-    "regression_structures": {
-        "absent": 0,
-        "blue areas": 1,
-        "combinations": 2,
-        "white areas": 3,
-    },
-    "dots_and_globules": {"absent": 0, "irregular": 1, "regular": 2},
-    "blue_whitish_veil": {"absent": 0, "present": 1},
-    "vascular_structures": {
-        "absent": 0,
-        "arborizing": 1,
-        "comma": 2,
-        "dotted": 3,
-        "hairpin": 4,
-        "linear irregular": 5,
-        "within regression": 6,
-        "wreath": 7,
-    },
-}
 
 
 class Derm7ptDataset(Dataset):
-    """
-    Dataset class for Derm7pt supporting:
-    - M0: Majority Baseline
-    - M1: Black-box CNN/Transformer (Image -> Diagnosis)
-    - M2: Oracle Concept Classifier (GT Concepts -> Diagnosis)
-    - M3: Soft Joint CBM (Image -> Soft Concepts -> Diagnosis)
-    - M4: Hard Sequential CBM (Image -> Hard Concepts -> Diagnosis)
-    - M5: Energy-Based CBM (Image, Concepts, Diagnosis Joint Energy)
-    """
-
+    # Dataset PyTorch nạp ảnh soi da, nhãn bệnh và các khái niệm lâm sàng
     def __init__(
         self,
         manifest_path: str,
@@ -96,28 +58,15 @@ class Derm7ptDataset(Dataset):
         transform=None,
         label_mapping: Optional[Dict[str, Dict[str, int]]] = None,
     ):
-        """
-        Parameters:
-        -----------
-        manifest_path : str
-            Path to manifest.csv.
-        project_root : str
-            Base directory from which derm_path_resolved is located.
-        split : str or list of str, optional
-            'train', 'valid' (or 'val'), 'test', or list of them. None loads all.
-        transform : callable, optional
-            Image transform pipeline.
-        label_mapping : dict, optional
-            Concept string-to-int mapping. If None, loads from label_mapping.json or defaults.
-        """
         self.project_root = project_root
         self.transform = transform
 
         if not os.path.isabs(manifest_path):
             manifest_path = os.path.join(project_root, manifest_path)
-        self.df = pd.read_csv(manifest_path)
+        # Ép kiểu tường minh cho cột is_inconsistent_profile để tránh lỗi bool("False") = True
+        self.df = pd.read_csv(manifest_path, dtype={"is_inconsistent_profile": bool})
 
-        # Standardize split filter
+        # Lọc dữ liệu theo tập tương ứng (train, valid, test)
         if split is not None:
             if isinstance(split, str):
                 split_val = "valid" if split.lower() in ["val", "valid"] else split.lower()
@@ -128,17 +77,17 @@ class Derm7ptDataset(Dataset):
 
         self.df = self.df.reset_index(drop=True)
 
-        # Label mapping for concepts
+        # Nạp bảng ánh xạ nhãn khái niệm (nguồn duy nhất: label_mapping.json)
         if label_mapping is not None:
             self.label_mapping = label_mapping
         else:
-            # Check for label_mapping.json in same dir as manifest
             mapping_file = os.path.join(os.path.dirname(manifest_path), "label_mapping.json")
-            if os.path.exists(mapping_file):
-                with open(mapping_file, "r") as f:
-                    self.label_mapping = json.load(f)
-            else:
-                self.label_mapping = DEFAULT_LABEL_MAPPING
+            assert os.path.exists(mapping_file), (
+                f"Thiếu file label_mapping.json tại {mapping_file}. "
+                f"File này là nguồn ánh xạ duy nhất, không có bản fallback hardcode."
+            )
+            with open(mapping_file, "r") as f:
+                self.label_mapping = json.load(f)
 
     def __len__(self) -> int:
         return len(self.df)
@@ -146,7 +95,7 @@ class Derm7ptDataset(Dataset):
     def __getitem__(self, idx: int) -> Dict[str, Union[torch.Tensor, Dict, str, int]]:
         row = self.df.iloc[idx]
 
-        # 1. Load Image
+        # Đọc ảnh soi da và áp dụng biến đổi
         img_rel_path = row["derm_path_resolved"]
         img_full_path = os.path.join(self.project_root, img_rel_path)
         img = Image.open(img_full_path).convert("RGB")
@@ -154,14 +103,13 @@ class Derm7ptDataset(Dataset):
         if self.transform is not None:
             image_tensor = self.transform(img)
         else:
-            # Fallback simple tensor conversion if no transform provided
             image_tensor = torch.from_numpy(np.array(img)).permute(2, 0, 1).float() / 255.0
 
-        # 2. Diagnosis Label (Binary: 0 for Non-Melanoma, 1 for Melanoma)
+        # Nhãn chẩn đoán bệnh (0: Non-Melanoma, 1: Melanoma)
         target_y = int(row["diagnosis_binary"])
         label_tensor = torch.tensor(target_y, dtype=torch.long)
 
-        # 3. Concept Labels (per group integer class & 28-dimensional one-hot)
+        # Trích xuất nhãn khái niệm: index số nguyên và vector one-hot 28 chiều
         concept_labels: Dict[str, torch.Tensor] = {}
         concept_indices_list: List[int] = []
         concept_onehot = torch.zeros(TOTAL_CONCEPT_STATES, dtype=torch.float32)
@@ -172,13 +120,13 @@ class Derm7ptDataset(Dataset):
             concept_labels[c_name] = torch.tensor(c_idx, dtype=torch.long)
             concept_indices_list.append(c_idx)
 
-            # Set 1 at corresponding global one-hot position
+            # Đánh dấu bit 1 tại vị trí toàn cục của trạng thái
             global_idx = CONCEPT_OFFSETS[c_name] + c_idx
             concept_onehot[global_idx] = 1.0
 
         concept_indices = torch.tensor(concept_indices_list, dtype=torch.long)
 
-        # 4. Metadata for error analysis, intervention tracking & reporting
+        # Siêu dữ liệu phục vụ theo dõi và phân tích ca bệnh
         meta = {
             "case_num": int(row["case_num"]),
             "source_index": int(row["source_index"]),
@@ -200,11 +148,7 @@ class Derm7ptDataset(Dataset):
 
 
 def compute_diagnosis_weights(manifest_path: str, project_root: str) -> torch.Tensor:
-    """
-    Computes inverse class frequencies on the TRAINING set only:
-    w_j = N / (2 * N_j)
-    Prevents data leakage from val/test.
-    """
+    # Tính trọng số nghịch đảo tần suất lớp chỉ trên tập train: w = N / (2 * N_c)
     if not os.path.isabs(manifest_path):
         manifest_path = os.path.join(project_root, manifest_path)
     df = pd.read_csv(manifest_path)
@@ -230,20 +174,14 @@ def get_dataloaders(
     target_size: int = 224,
     augment_train: bool = True,
     use_weighted_sampler: bool = False,
+    augmentation_preset: str = "legacy_letterbox",
+    include_test: bool = True,
 ) -> Dict[str, Union[DataLoader, torch.Tensor, Dict[str, Derm7ptDataset]]]:
-    """
-    Constructs train, valid, and test DataLoaders following the official Derm7pt split.
-
-    Returns:
-    --------
-    dict with keys:
-        'train': DataLoader,
-        'valid': DataLoader,
-        'test': DataLoader,
-        'class_weights': Tensor [w0, w1] for balanced cross-entropy,
-        'datasets': {'train': ..., 'valid': ..., 'test': ...}
-    """
-    train_transform = get_transforms(split="train", target_size=target_size, augment=augment_train)
+    # Khởi tạo DataLoader cho 3 tập train, valid, test
+    train_transform = get_transforms(
+        split="train", target_size=target_size, augment=augment_train,
+        augmentation_preset=augmentation_preset,
+    )
     eval_transform = get_transforms(split="valid", target_size=target_size, augment=False)
 
     train_dataset = Derm7ptDataset(
@@ -258,19 +196,21 @@ def get_dataloaders(
         split="valid",
         transform=eval_transform,
     )
-    test_dataset = Derm7ptDataset(
-        manifest_path=manifest_path,
-        project_root=project_root,
-        split="test",
-        transform=eval_transform,
-    )
+    test_dataset = None
+    if include_test:
+        test_dataset = Derm7ptDataset(
+            manifest_path=manifest_path,
+            project_root=project_root,
+            split="test",
+            transform=eval_transform,
+        )
 
     if pin_memory and torch.backends.mps.is_available():
         pin_memory = False
 
     class_weights = compute_diagnosis_weights(manifest_path, project_root)
 
-    # Optional WeightedRandomSampler for training batch balancing
+    # Bộ lấy mẫu theo trọng số cho tập train nếu cần cân bằng batch
     train_sampler = None
     shuffle_train = True
     if use_weighted_sampler:
@@ -302,43 +242,33 @@ def get_dataloaders(
         drop_last=False,
     )
 
-    test_loader = DataLoader(
-        test_dataset,
-        batch_size=batch_size,
-        shuffle=False,
-        num_workers=num_workers,
-        pin_memory=pin_memory,
-        drop_last=False,
-    )
-
-    return {
+    bundle = {
         "train": train_loader,
         "valid": valid_loader,
-        "test": test_loader,
         "class_weights": class_weights,
         "datasets": {
             "train": train_dataset,
             "valid": valid_dataset,
-            "test": test_dataset,
         },
     }
+    if test_dataset is not None:
+        bundle["test"] = DataLoader(
+            test_dataset,
+            batch_size=batch_size,
+            shuffle=False,
+            num_workers=num_workers,
+            pin_memory=pin_memory,
+            drop_last=False,
+        )
+        bundle["datasets"]["test"] = test_dataset
+    return bundle
 
 
 if __name__ == "__main__":
-    print("=" * 60)
-    print("Running src/dataset.py directly as standalone script...")
-    print("=" * 60)
-
-    # Determine paths relative to this file
     current_dir = os.path.dirname(os.path.abspath(__file__))
     project_root = os.path.dirname(current_dir)
     manifest_path = os.path.join(project_root, "data", "manifest.csv")
 
-    if not os.path.exists(manifest_path):
-        print(f"Error: Manifest not found at {manifest_path}")
-        exit(1)
-
-    print(f"Loading data from: {manifest_path}")
     bundle = get_dataloaders(
         manifest_path=manifest_path,
         project_root=project_root,
@@ -347,14 +277,6 @@ if __name__ == "__main__":
         target_size=224,
     )
 
-    print(f"Train samples: {len(bundle['datasets']['train'])}")
-    print(f"Valid samples: {len(bundle['datasets']['valid'])}")
-    print(f"Test samples:  {len(bundle['datasets']['test'])}")
-    print(f"Class weights: {bundle['class_weights'].tolist()}")
-
+    print(f"Train: {len(bundle['datasets']['train'])}, Valid: {len(bundle['datasets']['valid'])}, Test: {len(bundle['datasets']['test'])}")
     batch = next(iter(bundle["train"]))
-    print(f"Sample Batch Images shape:  {tuple(batch['image'].shape)}")
-    print(f"Sample Batch Labels shape:  {tuple(batch['label'].shape)}")
-    print(f"Sample Batch Concept shape: {tuple(batch['concept_onehot'].shape)}")
-    print("[SUCCESS] src/dataset.py executed standalone successfully!")
-
+    print(f"Batch image shape: {tuple(batch['image'].shape)}, onehot shape: {tuple(batch['concept_onehot'].shape)}")

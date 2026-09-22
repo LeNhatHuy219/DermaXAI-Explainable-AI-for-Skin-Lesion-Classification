@@ -1,13 +1,11 @@
 # DermaXAI: Explainable AI for Skin Lesion Classification
 
-> **Khoá luận Tốt nghiệp**  
-> **Đề tài:** Ứng dụng Mô hình Nút thắt Khái niệm (Explainable Concept Bottleneck Models - ECBM) trong Phân loại ảnh có giải thích Tổn thương Da liễu trên Bộ dữ liệu Derm7pt.  
-
 ---
 
 ## 1. Mô tả Đề tài và Mục tiêu Nghiên cứu (Problem Description & Objectives)
 
 ### 1.1. Bối cảnh và Tính cấp thiết
+
 Ung thư hắc tố (Melanoma) là một trong những dạng ung thư da ác tính và có tỷ lệ tử vong cao nhất nếu không được phát hiện và can thiệp ở giai đoạn sớm. Trong những năm gần đây, các mô hình học sâu (Deep Learning) đạt được độ chính xác rất cao trong phân loại ảnh soi da (dermoscopy). Tuy nhiên, phần lớn các mô hình này hoạt động theo cơ chế **"hộp đen" (Black-box)**: dự đoán trực tiếp từ ảnh sang nhãn bệnh ($x \to y$) mà không thể đưa ra bất kỳ cơ sở y lý hay giải thích nào cho kết quả chẩn đoán.
 
 Sự thiếu minh bạch này dẫn đến nguy cơ:
@@ -15,6 +13,7 @@ Sự thiếu minh bạch này dẫn đến nguy cơ:
 * Thiếu tính giải trình và khó được cấp phép áp dụng trong môi trường khám chữa bệnh thực tế.
 
 ### 1.2. Mục tiêu Nghiên cứu của Đề tài
+
 Đề tài **DermaXAI** hướng tới xây dựng một hệ thống phân loại tổn thương da vừa đạt hiệu năng chẩn đoán cao, vừa có khả năng giải thích minh bạch theo chuẩn y khoa thông qua mô hình **Concept Bottleneck Models (CBM / ECBM)**:
 1. **Minh bạch hóa quá trình suy luận:** Chia tách bài toán thành hai chặng rõ ràng:
    * Chặng 1 ($f: x \to c$): Dự đoán các đặc trưng lâm sàng trung gian dựa trên bảng kiểm 7 điểm chuẩn da liễu (**7-Point Checklist**).
@@ -36,7 +35,7 @@ Hệ thống sử dụng trọn vẹn 7 tiêu chuẩn lâm sàng của bảng ki
 | 4 | `regression_structures` (Cấu trúc thoái triển) | 4 | [11 .. 14] | absent, white areas, blue areas, combinations |
 | 5 | `dots_and_globules` (Chấm và hạt cầu) | 3 | [15 .. 17] | absent, regular, irregular |
 | 6 | `blue_whitish_veil` (Màn mờ xanh trắng) | 2 | [18 .. 19] | absent, present |
-| 7 | `vascular_structures` (Cấu trúc mạch máu) | 8 | [20 .. 27] | absent, arborizing, comma, dotted, hairpin, linear irregular, regular, wreath |
+| 7 | `vascular_structures` (Cấu trúc mạch máu) | 8 | [20 .. 27] | absent, arborizing, comma, dotted, hairpin, linear irregular, within regression, wreath |
 
 * **Biểu diễn nhãn dạng số nguyên (`concept_indices`):** Tensor kích thước `(7,)` lưu trữ index cục bộ của từng concept, phục vụ cho hàm mất mát Multi-Head Cross-Entropy.
 * **Biểu diễn nút thắt cổ chai (`concept_onehot`):** Vector 28 chiều ghép từ 7 one-hot vectors, luôn có đúng 7 bit được kích hoạt (tổng vector = 7.0), đưa vào mạng phân loại chẩn đoán $g$.
@@ -50,9 +49,9 @@ Quá trình suy luận chẩn đoán được chia tách thành các chặng tu�
 | Chặng | Luồng Xử lý | Chi tiết Kỹ thuật | Đầu ra & Ý nghĩa Y khoa |
 |:---|:---|:---|:---|
 | **1. Đầu vào** | Ảnh soi da (Dermoscopy) | Kích thước 224 x 224 x 3 pixel (LetterboxResize) | Dữ liệu hình ảnh bảo toàn hình học tổn thương |
-| **2. Trích xuất** | Mạng Backbone $f$ | Mô hình CNN (ResNet) hoặc ViT | Trích xuất đặc trưng hình ảnh bậc cao |
+| **2. Trích xuất** | Mạng Backbone $f$ | Mô hình CNN (EfficientNet-B0) | Trích xuất đặc trưng hình ảnh bậc cao |
 | **3. Nút thắt** | Bottleneck $c$ | 7 Khái niệm lâm sàng (7-Point Checklist) | Vector 28 ô One-Hot đại diện cho dấu hiệu bệnh lý |
-| **4. Suy luận** | Mạng Chẩn đoán $g$ | Bộ phân loại Linear / MLP | Kết quả: 0 (Lành tính) hoặc 1 (Ung thư Melanoma) |
+| **4. Suy luận** | Mạng Chẩn đoán $g$ | Bộ phân loại Linear / MLP | Kết quả: 0 (Non-Melanoma) hoặc 1 (Melanoma); Non-Melanoma không đồng nghĩa lành tính |
 | **5. Can thiệp** | Bác sĩ tương tác ($c^*$) | Chỉnh sửa các đặc trưng bị AI nhận định sai | Cập nhật lại chẩn đoán $y^*$ theo đúng y lệnh |
 
 > **Sơ đồ Kiến trúc Tương tác Chi tiết:**  
@@ -68,7 +67,7 @@ Nghiên cứu sử dụng bộ dữ liệu lâm sàng chuẩn quốc tế **Derm
   * `train`: 413 mẫu (323 Non-Melanoma, 90 Melanoma - tỷ lệ mất cân bằng ~ 3.6 : 1).
   * `valid`: 203 mẫu.
   * `test`: 395 mẫu.
-* **Nguyên tắc chống rò rỉ dữ liệu (Zero Data Leakage):** Việc phân chia được cố định theo mã định danh bệnh nhân (`case_num`). Một bệnh nhân chỉ xuất hiện duy nhất ở một tập, tuyệt đối không có sự trùng lặp giữa train, valid và test.
+* **Phân chia cố định theo ca (Zero Leakage):** Việc phân chia được cố định theo mã ca tổn thương (`case_num`), không có sự trùng lặp giữa train, valid và test.
 * **Xử lý mất cân bằng lớp:** Trọng số phạt nghịch đảo chỉ được tính toán trên tập train:
   * Lớp 0 (Non-Melanoma): $w_0 = 0.6393$
   * Lớp 1 (Melanoma): $w_1 = 2.2944$ (phạt nặng gấp 3.59 lần khi đoán sai ca ung thư).
@@ -86,9 +85,23 @@ Từ quá trình tiền xử lý và chạy bài audit 80 tiêu chí trên toàn
 
 ---
 
-## 6. Tài liệu Tham khảo Chính (References)
+## 6. Chạy M1 EfficientNet-B0
+
+```bash
+# Giai đoạn 1: Huấn luyện và chọn ngưỡng trên Validation
+python3 experiments/run_m1.py --mode train --seed 42
+
+# Giai đoạn 2: Đánh giá chính thức trên Test Set
+python3 experiments/run_m1.py --mode test --seed 42
+```
+
+Chế độ `train` chỉ tạo loader train/validation và không đánh giá test. Checkpoint được chọn theo validation Balanced Accuracy tại ngưỡng 0.5; ngưỡng quyết định cuối được chọn trên validation của checkpoint đó bằng cách tối đa Balanced Accuracy. Chế độ `test` sử dụng checkpoint và ngưỡng đã đóng băng để đánh giá một lần duy nhất trên tập test độc lập.
+
+---
+
+## 7. Tài liệu Tham khảo Chính (References)
 
 1. Koh, P. W., et al. *"Concept Bottleneck Models."* International Conference on Machine Learning (ICML), 2020.
 2. Kawahara, J., et al. *"Seven-Point Checklist and Skin Lesion Classification Using Multitask Multimodal Neural Nets."* IEEE Journal of Biomedical and Health Informatics (JBHI), 2019.
-3. Nápoles, G., et al. *"On the Concept Inconsistency in Derm7pt for Explainable Dermatology."* (2026).
+3. Nápoles, G., Grau, I. & Salgueiro, Y. *"Concept inconsistency in dermoscopic concept bottleneck models: a rough-set analysis of the Derm7pt dataset."* Scientific Reports (2026).
 4. Patricio, C., et al. *"Coherent Concept-based Explanations for Skin Lesion Analysis."* (2023–2025).
