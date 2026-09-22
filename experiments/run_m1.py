@@ -177,8 +177,11 @@ def _manifest_hash(manifest_path: str) -> str:
     return digest.hexdigest()
 
 
-def _default_paths(seed: int, augmentation_preset: str) -> Tuple[str, str, str]:
-    stem = f"m1_efficientnet_b0_{augmentation_preset}_seed{seed}"
+def _default_paths(seed: int = DEFAULT_SEED, augmentation_preset: str = DEFAULT_AUGMENTATION_PRESET) -> Tuple[str, str, str]:
+    if seed == DEFAULT_SEED and augmentation_preset == DEFAULT_AUGMENTATION_PRESET:
+        stem = "m1_efficientnet_b0"
+    else:
+        stem = f"m1_efficientnet_b0_{augmentation_preset}_seed{seed}"
     return (
         os.path.join(PROJECT_ROOT, "checkpoints", f"{stem}_best.pth"),
         os.path.join(PROJECT_ROOT, "results", f"{stem}_validation.json"),
