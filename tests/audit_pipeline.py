@@ -98,6 +98,11 @@ for c_name in CONCEPT_NAMES:
     check(f"  {c_name}: indices contiguous 0..{CONCEPT_NUM_CLASSES[c_name]-1}",
           indices == expected, f"Got {indices}")
 
+# Kiểm tra dtype cột is_inconsistent_profile phải là bool, tránh lỗi bool("False") = True
+check("is_inconsistent_profile dtype is bool",
+      df["is_inconsistent_profile"].dtype == bool,
+      f"Got dtype: {df['is_inconsistent_profile'].dtype}")
+
 # --- SECTION 3: One-Hot Encoding Correctness ---
 print("\n[3] ONE-HOT ENCODING CORRECTNESS")
 

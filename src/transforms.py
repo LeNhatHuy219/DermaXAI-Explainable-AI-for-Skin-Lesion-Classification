@@ -93,14 +93,43 @@ class SimpleCompose:
         return x
 
 
-def get_transforms(split: str = "train", target_size: int = 224, augment: bool = True):
+def get_transforms(
+    split: str = "train",
+    target_size: int = 224,
+    augment: bool = True,
+    augmentation_preset: str = "legacy_letterbox",
+):
     # Pipeline biến đổi ảnh cho Derm7pt (chuẩn hóa ImageNet)
     mean = [0.485, 0.456, 0.406]
     std = [0.229, 0.224, 0.225]
     is_train = split.lower() in ["train", "training"]
+    if augmentation_preset not in {"legacy_letterbox", "comparison"}:
+        raise ValueError(f"Unknown augmentation preset: {augmentation_preset}")
+
+    if is_train and augment and augmentation_preset == "comparison":
+        if not HAS_TORCHVISION:
+            raise ImportError("The comparison augmentation preset requires torchvision")
+        # Cố định chính xác các tham số này cho M1/M3/M5 khi so sánh backbone.
+        return T.Compose([
+            T.RandomResizedCrop(
+                (target_size, target_size),
+                scale=(0.85, 1.0),
+                ratio=(0.9, 1.1),
+                interpolation=T.InterpolationMode.BILINEAR,
+            ),
+            T.RandomHorizontalFlip(p=0.5),
+            T.RandomVerticalFlip(p=0.5),
+            T.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1, hue=0.02),
+            T.RandomRotation(degrees=15, fill=0),
+            T.ToTensor(),
+            T.Normalize(mean=mean, std=std),
+        ])
 
     if HAS_TORCHVISION:
         if is_train and augment:
+            # Thứ tự: LetterboxResize trước RandomRotation là lựa chọn thiết kế có chủ đích.
+            # Viền padding đen sẽ bị xoay theo, tạo ra vùng góc nhỏ lệch màu.
+            # Ảnh hưởng không đáng kể với góc xoay nhỏ (15 độ) và đơn giản hóa pipeline.
             return T.Compose([
                 LetterboxResize((target_size, target_size)),
                 T.RandomHorizontalFlip(p=0.5),

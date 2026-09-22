@@ -36,7 +36,7 @@ Hệ thống sử dụng trọn vẹn 7 tiêu chuẩn lâm sàng của bảng ki
 | 4 | `regression_structures` (Cấu trúc thoái triển) | 4 | [11 .. 14] | absent, white areas, blue areas, combinations |
 | 5 | `dots_and_globules` (Chấm và hạt cầu) | 3 | [15 .. 17] | absent, regular, irregular |
 | 6 | `blue_whitish_veil` (Màn mờ xanh trắng) | 2 | [18 .. 19] | absent, present |
-| 7 | `vascular_structures` (Cấu trúc mạch máu) | 8 | [20 .. 27] | absent, arborizing, comma, dotted, hairpin, linear irregular, regular, wreath |
+| 7 | `vascular_structures` (Cấu trúc mạch máu) | 8 | [20 .. 27] | absent, arborizing, comma, dotted, hairpin, linear irregular, within regression, wreath |
 
 * **Biểu diễn nhãn dạng số nguyên (`concept_indices`):** Tensor kích thước `(7,)` lưu trữ index cục bộ của từng concept, phục vụ cho hàm mất mát Multi-Head Cross-Entropy.
 * **Biểu diễn nút thắt cổ chai (`concept_onehot`):** Vector 28 chiều ghép từ 7 one-hot vectors, luôn có đúng 7 bit được kích hoạt (tổng vector = 7.0), đưa vào mạng phân loại chẩn đoán $g$.
@@ -49,10 +49,10 @@ Quá trình suy luận chẩn đoán được chia tách thành các chặng tu�
 
 | Chặng | Luồng Xử lý | Chi tiết Kỹ thuật | Đầu ra & Ý nghĩa Y khoa |
 |:---|:---|:---|:---|
-| **1. Đầu vào** | Ảnh soi da (Dermoscopy) | Kích thước 224 x 224 x 3 pixel (LetterboxResize) | Dữ liệu hình ảnh bảo toàn hình học tổn thương |
-| **2. Trích xuất** | Mạng Backbone $f$ | Mô hình CNN (ResNet) hoặc ViT | Trích xuất đặc trưng hình ảnh bậc cao |
+| **1. Đầu vào** | Ảnh soi da (Dermoscopy) | Kích thước 224 x 224 x 3 pixel; validation/test dùng LetterboxResize, train M1 preset `comparison` dùng RandomResizedCrop | Tiền xử lý ảnh theo từng split |
+| **2. Trích xuất** | Mạng Backbone $f$ | Mô hình CNN (EfficientNet-B0) | Trích xuất đặc trưng hình ảnh bậc cao |
 | **3. Nút thắt** | Bottleneck $c$ | 7 Khái niệm lâm sàng (7-Point Checklist) | Vector 28 ô One-Hot đại diện cho dấu hiệu bệnh lý |
-| **4. Suy luận** | Mạng Chẩn đoán $g$ | Bộ phân loại Linear / MLP | Kết quả: 0 (Lành tính) hoặc 1 (Ung thư Melanoma) |
+| **4. Suy luận** | Mạng Chẩn đoán $g$ | Bộ phân loại Linear / MLP | Kết quả: 0 (Non-Melanoma) hoặc 1 (Melanoma); Non-Melanoma không đồng nghĩa lành tính |
 | **5. Can thiệp** | Bác sĩ tương tác ($c^*$) | Chỉnh sửa các đặc trưng bị AI nhận định sai | Cập nhật lại chẩn đoán $y^*$ theo đúng y lệnh |
 
 > **Sơ đồ Kiến trúc Tương tác Chi tiết:**  
@@ -68,7 +68,7 @@ Nghiên cứu sử dụng bộ dữ liệu lâm sàng chuẩn quốc tế **Derm
   * `train`: 413 mẫu (323 Non-Melanoma, 90 Melanoma - tỷ lệ mất cân bằng ~ 3.6 : 1).
   * `valid`: 203 mẫu.
   * `test`: 395 mẫu.
-* **Nguyên tắc chống rò rỉ dữ liệu (Zero Data Leakage):** Việc phân chia được cố định theo mã định danh bệnh nhân (`case_num`). Một bệnh nhân chỉ xuất hiện duy nhất ở một tập, tuyệt đối không có sự trùng lặp giữa train, valid và test.
+* **Phân chia cố định theo ca:** Các `case_num` không trùng giữa train, valid và test. `case_num` là mã ca/tổn thương, không đủ bằng chứng để khẳng định đây là mã bệnh nhân; vì vậy chưa thể kết luận độc lập tuyệt đối ở cấp bệnh nhân.
 * **Xử lý mất cân bằng lớp:** Trọng số phạt nghịch đảo chỉ được tính toán trên tập train:
   * Lớp 0 (Non-Melanoma): $w_0 = 0.6393$
   * Lớp 1 (Melanoma): $w_1 = 2.2944$ (phạt nặng gấp 3.59 lần khi đoán sai ca ung thư).
@@ -86,7 +86,27 @@ Từ quá trình tiền xử lý và chạy bài audit 80 tiêu chí trên toàn
 
 ---
 
-## 6. Tài liệu Tham khảo Chính (References)
+## 6. Chạy M1 EfficientNet-B0
+
+Môi trường: cài các gói trong `requirements.txt` bằng một Python có PyTorch/torchvision tương thích. Trên máy hiện tại, `/usr/local/bin/python3` là Python đã có đủ thư viện; `python3` mặc định có thể trỏ sang môi trường khác.
+
+```bash
+/usr/local/bin/python3 experiments/run_m1.py --mode train --seed 42
+/usr/local/bin/python3 experiments/run_m1.py --mode train --seed 123
+/usr/local/bin/python3 experiments/run_m1.py --mode train --seed 2026
+```
+
+Chế độ `train` chỉ tạo loader train/validation và không đánh giá test. Checkpoint được chọn theo validation Balanced Accuracy tại ngưỡng 0.5; ngưỡng quyết định cuối được chọn trên validation của checkpoint đó bằng cách tối đa Balanced Accuracy (hòa thì ưu tiên gần 0.5). Mỗi seed có checkpoint và JSON validation riêng, gồm lịch sử học, dự đoán từng mẫu, PR-AUC (Average Precision), cấu hình và hash manifest. Mặc định preset `comparison` dùng RandomResizedCrop, lật ngang/dọc, ColorJitter và RandomRotation; validation/test dùng LetterboxResize. Các biên độ crop/jitter trong mã được đặt tường minh nhưng chưa đối chiếu được với script so sánh ResNet–EfficientNet trước đây; cần kiểm tra script đó hoặc chạy lại cả hai backbone bằng cùng preset trước khi trích dẫn bảng đối đầu. M3/M5 cũng cần dùng đúng preset đã chốt để so sánh công bằng. Preset `legacy_letterbox` giữ nguyên pipeline của checkpoint M1 cũ; các kết quả từ hai preset không được so sánh như cùng một cấu hình.
+
+Sau khi chọn cấu hình dựa trên validation và chốt kết quả các seed, đánh giá test bằng lệnh riêng:
+
+```bash
+/usr/local/bin/python3 experiments/run_m1.py --mode test --seed 42 --augmentation_preset comparison
+```
+
+Lệnh test chỉ sử dụng checkpoint và ngưỡng đã cố định, đồng thời kiểm tra manifest không đổi. Các artifact cũ không bị ghi đè mặc định; muốn chạy lại cùng tên phải chọn đường dẫn khác hoặc chỉ định `--overwrite` có chủ đích. Kết quả M1 trước khi đổi preset/checkpoint vẫn được giữ ở `results/m1_blackbox_results.json` và `checkpoints/m1_efficientnet_b0_best.pth` như một thí nghiệm cũ, không phải kết quả của pipeline `comparison` mới.
+
+## 7. Tài liệu Tham khảo Chính (References)
 
 1. Koh, P. W., et al. *"Concept Bottleneck Models."* International Conference on Machine Learning (ICML), 2020.
 2. Kawahara, J., et al. *"Seven-Point Checklist and Skin Lesion Classification Using Multitask Multimodal Neural Nets."* IEEE Journal of Biomedical and Health Informatics (JBHI), 2019.

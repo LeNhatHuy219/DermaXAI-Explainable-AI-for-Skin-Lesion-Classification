@@ -62,33 +62,41 @@ def run_majority_baseline(manifest_path: str = None, save_results: bool = True):
 
     melanoma_prior = float(n_train_pos / len(train_labels))
 
-    print(f"Training samples: {len(train_labels)} (Class 0: {n_train_neg}, Class 1: {n_train_pos})")
-    print(f"Majority class: {majority_class} (Non-Melanoma), Melanoma Prior: {melanoma_prior:.4f}")
+    # Tạo bản tóm tắt dạng text (hiển thị terminal + lưu vào json)
+    header = (
+        f"Training samples: {len(train_labels)} (Class 0: {n_train_neg}, Class 1: {n_train_pos})\n"
+        f"Majority class: {majority_class} (Non-Melanoma), Melanoma Prior: {melanoma_prior:.4f}"
+    )
+    print(header)
 
     # Đánh giá trên tập validation
     valid_pred = np.full(len(valid_labels), majority_class)
     valid_prob = np.full(len(valid_labels), melanoma_prior)
     valid_metrics = compute_metrics(valid_labels, valid_pred, valid_prob)
     valid_sample_preds = _extract_sample_predictions(valid_df, valid_pred, valid_prob)
-    print_metrics_table(valid_metrics, title="Validation Set")
+    valid_table = print_metrics_table(valid_metrics, title="Validation Set")
 
     # Đánh giá trên tập test
     test_pred = np.full(len(test_labels), majority_class)
     test_prob = np.full(len(test_labels), melanoma_prior)
     test_metrics = compute_metrics(test_labels, test_pred, test_prob)
     test_sample_preds = _extract_sample_predictions(test_df, test_pred, test_prob)
-    print_metrics_table(test_metrics, title="Test Set")
+    test_table = print_metrics_table(test_metrics, title="Test Set")
+
+    # Ghép toàn bộ nội dung terminal thành chuỗi tóm tắt
+    summary = f"{header}\n\n{valid_table}\n\n{test_table}"
 
     results = {
         "model": "M0_Majority_Baseline",
         "majority_class": majority_class,
         "melanoma_prior": melanoma_prior,
+        "summary": summary,
         "validation_metrics": valid_metrics,
         "test_metrics": test_metrics,
         "test_predictions": test_sample_preds,
     }
 
-    # Lưu kết quả duy nhất vào file json
+    # Lưu kết quả vào file json
     if save_results:
         results_dir = os.path.join(PROJECT_ROOT, "results")
         os.makedirs(results_dir, exist_ok=True)

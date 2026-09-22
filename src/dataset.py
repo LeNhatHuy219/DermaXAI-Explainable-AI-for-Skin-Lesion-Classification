@@ -45,36 +45,7 @@ for name in CONCEPT_NAMES:
     CONCEPT_OFFSETS[name] = _offset
     _offset += CONCEPT_NUM_CLASSES[name]
 
-# Bảng ánh xạ chuỗi trạng thái sang chỉ số số nguyên mặc định
-DEFAULT_LABEL_MAPPING: Dict[str, Dict[str, int]] = {
-    "pigment_network": {"absent": 0, "atypical": 1, "typical": 2},
-    "streaks": {"absent": 0, "irregular": 1, "regular": 2},
-    "pigmentation": {
-        "absent": 0,
-        "diffuse irregular": 1,
-        "diffuse regular": 2,
-        "localized irregular": 3,
-        "localized regular": 4,
-    },
-    "regression_structures": {
-        "absent": 0,
-        "blue areas": 1,
-        "combinations": 2,
-        "white areas": 3,
-    },
-    "dots_and_globules": {"absent": 0, "irregular": 1, "regular": 2},
-    "blue_whitish_veil": {"absent": 0, "present": 1},
-    "vascular_structures": {
-        "absent": 0,
-        "arborizing": 1,
-        "comma": 2,
-        "dotted": 3,
-        "hairpin": 4,
-        "linear irregular": 5,
-        "within regression": 6,
-        "wreath": 7,
-    },
-}
+
 
 
 class Derm7ptDataset(Dataset):
@@ -92,7 +63,8 @@ class Derm7ptDataset(Dataset):
 
         if not os.path.isabs(manifest_path):
             manifest_path = os.path.join(project_root, manifest_path)
-        self.df = pd.read_csv(manifest_path)
+        # Ép kiểu tường minh cho cột is_inconsistent_profile để tránh lỗi bool("False") = True
+        self.df = pd.read_csv(manifest_path, dtype={"is_inconsistent_profile": bool})
 
         # Lọc dữ liệu theo tập tương ứng (train, valid, test)
         if split is not None:
@@ -105,16 +77,17 @@ class Derm7ptDataset(Dataset):
 
         self.df = self.df.reset_index(drop=True)
 
-        # Nạp bảng ánh xạ nhãn khái niệm
+        # Nạp bảng ánh xạ nhãn khái niệm (nguồn duy nhất: label_mapping.json)
         if label_mapping is not None:
             self.label_mapping = label_mapping
         else:
             mapping_file = os.path.join(os.path.dirname(manifest_path), "label_mapping.json")
-            if os.path.exists(mapping_file):
-                with open(mapping_file, "r") as f:
-                    self.label_mapping = json.load(f)
-            else:
-                self.label_mapping = DEFAULT_LABEL_MAPPING
+            assert os.path.exists(mapping_file), (
+                f"Thiếu file label_mapping.json tại {mapping_file}. "
+                f"File này là nguồn ánh xạ duy nhất, không có bản fallback hardcode."
+            )
+            with open(mapping_file, "r") as f:
+                self.label_mapping = json.load(f)
 
     def __len__(self) -> int:
         return len(self.df)
@@ -201,9 +174,14 @@ def get_dataloaders(
     target_size: int = 224,
     augment_train: bool = True,
     use_weighted_sampler: bool = False,
+    augmentation_preset: str = "legacy_letterbox",
+    include_test: bool = True,
 ) -> Dict[str, Union[DataLoader, torch.Tensor, Dict[str, Derm7ptDataset]]]:
     # Khởi tạo DataLoader cho 3 tập train, valid, test
-    train_transform = get_transforms(split="train", target_size=target_size, augment=augment_train)
+    train_transform = get_transforms(
+        split="train", target_size=target_size, augment=augment_train,
+        augmentation_preset=augmentation_preset,
+    )
     eval_transform = get_transforms(split="valid", target_size=target_size, augment=False)
 
     train_dataset = Derm7ptDataset(
@@ -218,12 +196,14 @@ def get_dataloaders(
         split="valid",
         transform=eval_transform,
     )
-    test_dataset = Derm7ptDataset(
-        manifest_path=manifest_path,
-        project_root=project_root,
-        split="test",
-        transform=eval_transform,
-    )
+    test_dataset = None
+    if include_test:
+        test_dataset = Derm7ptDataset(
+            manifest_path=manifest_path,
+            project_root=project_root,
+            split="test",
+            transform=eval_transform,
+        )
 
     if pin_memory and torch.backends.mps.is_available():
         pin_memory = False
@@ -262,26 +242,26 @@ def get_dataloaders(
         drop_last=False,
     )
 
-    test_loader = DataLoader(
-        test_dataset,
-        batch_size=batch_size,
-        shuffle=False,
-        num_workers=num_workers,
-        pin_memory=pin_memory,
-        drop_last=False,
-    )
-
-    return {
+    bundle = {
         "train": train_loader,
         "valid": valid_loader,
-        "test": test_loader,
         "class_weights": class_weights,
         "datasets": {
             "train": train_dataset,
             "valid": valid_dataset,
-            "test": test_dataset,
         },
     }
+    if test_dataset is not None:
+        bundle["test"] = DataLoader(
+            test_dataset,
+            batch_size=batch_size,
+            shuffle=False,
+            num_workers=num_workers,
+            pin_memory=pin_memory,
+            drop_last=False,
+        )
+        bundle["datasets"]["test"] = test_dataset
+    return bundle
 
 
 if __name__ == "__main__":

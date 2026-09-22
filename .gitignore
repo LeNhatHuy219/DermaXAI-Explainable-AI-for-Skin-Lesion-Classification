@@ -1,0 +1,18 @@
+# Checkpoint mô hình
+checkpoints/
+*.pth
+*.pt
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# Hệ điều hành macOS
+.DS_Store
+
+# Môi trường ảo
+venv/
+.venv/
+env/
