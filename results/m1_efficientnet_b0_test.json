@@ -1,7 +1,7 @@
 {
   "model": "M1_BlackBox_EfficientNetB0",
   "mode": "final_test",
-  "checkpoint_path": "/Users/nhathuy/Desktop/HK1_26-27/KLTN/DermaXAI-Explainable-AI-for-Skin-Lesion-Classification/checkpoints/m1_efficientnet_b0_legacy_letterbox_seed42_best.pth",
+  "checkpoint_path": "/Users/nhathuy/Desktop/HK1_26-27/KLTN/DermaXAI-Explainable-AI-for-Skin-Lesion-Classification/checkpoints/m1_efficientnet_b0_best.pth",
   "best_epoch": 7,
   "hyperparameters": {
     "backbone": "EfficientNet-B0",

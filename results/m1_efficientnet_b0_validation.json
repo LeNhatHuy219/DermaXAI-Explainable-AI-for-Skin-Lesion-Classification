@@ -30,7 +30,7 @@
     "platform": "macOS-26.7.1-arm64-arm-64bit"
   },
   "manifest_sha256": "e21cdc7756f12c3ad6684d27edff0e63f96097ee955c2b0e9c5f25c50e3ac102",
-  "checkpoint_path": "/Users/nhathuy/Desktop/HK1_26-27/KLTN/DermaXAI-Explainable-AI-for-Skin-Lesion-Classification/checkpoints/m1_efficientnet_b0_legacy_letterbox_seed42_best.pth",
+  "checkpoint_path": "/Users/nhathuy/Desktop/HK1_26-27/KLTN/DermaXAI-Explainable-AI-for-Skin-Lesion-Classification/checkpoints/m1_efficientnet_b0_best.pth",
   "decision_threshold": 0.47886574268341064,
   "summary": "M1 Black-box Baseline (EfficientNet-B0)\nBest Epoch: 7/10\nTraining samples: 413, Valid: 203\nThreshold selected on validation: 0.478866\n\n--- Validation Set (Epoch 7, threshold=0.478866) ---\nTotal:             203 (Class 0: 142, Class 1: 61)\nAccuracy:          78.33%\nBalanced Accuracy: 73.75%\nSensitivity:       62.30%\nSpecificity:       85.21%\nPrecision:         64.41%\nF1 (Melanoma):     0.6333\nF1 (Macro):        0.7397\nROC-AUC:           0.7663\nPR-AUC (AP):       0.6651\nConfusion Matrix:  TN=121, FP=21, FN=23, TP=38",
   "validation_metrics_at_0.5": {
