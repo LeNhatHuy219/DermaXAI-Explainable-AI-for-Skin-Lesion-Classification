@@ -99,7 +99,68 @@ Chế độ `train` chỉ tạo loader train/validation và không đánh giá t
 
 ---
 
-## 7. Tài liệu Tham khảo Chính (References)
+## 7. Chạy M2 - Oracle Concept Model
+
+**Mục đích:** Đo trần thông tin (information ceiling) mà 7 concept Derm7pt Ground Truth thực sự chứa được cho bài toán chẩn đoán, hoàn toàn không dùng ảnh. Bộ phân loại $g$ là Logistic Regression (Linear, `class_weight="balanced"`) trên vector concept one-hot 28 chiều `c → y`. Hệ số C được chọn bằng grid-search tối đa Balanced Accuracy trên validation (tại ngưỡng 0.5); ngưỡng quyết định cuối cùng sau đó được chọn trên validation của mô hình đã chọn C, theo đúng quy trình 2 bước (chọn hyperparameter, rồi chọn ngưỡng) như M1 để tránh rò rỉ thông tin từ test.
+
+```bash
+# Giai đoạn 1: Grid-search C và chọn ngưỡng trên Validation
+python3 experiments/run_m2.py --mode train --seed 42
+
+# Giai đoạn 2: Đánh giá chính thức trên Test Set
+python3 experiments/run_m2.py --mode test --seed 42
+```
+
+Kết quả M2 cũng lưu lại hệ số hồi quy (`concept_state_coefficients`) cho từng trạng thái trong 28 chiều one-hot, phục vụ phân tích trạng thái nào đóng góp mạnh nhất vào quyết định Melanoma/Non-Melanoma.
+
+> **Lưu ý môi trường (Windows CPU-only):** import `scikit-learn` **trước** khi import `torch`/`torchvision` trong cùng một process có thể gây `Segmentation fault` do xung đột thứ tự nạp DLL OpenMP/MKL trên một số máy Windows. Cả `run_m2.py` và `run_m3.py` đều cố tình import `src.dataset` (kéo theo torch) trước `sklearn` để tránh lỗi này — giữ nguyên thứ tự import ở đầu hai file này nếu chỉnh sửa.
+
+---
+
+## 8. Chạy M3 - Soft Joint CBM
+
+**Mục đích:** CBM baseline chính để so sánh với ECBM (M5). Kiến trúc: EfficientNet-B0 (giống backbone của M1) trích đặc trưng 1280 chiều → 7 concept head Linear độc lập dự đoán xác suất mềm (softmax) từng nhóm → nối lại thành vector bottleneck 28 chiều (mỗi nhóm con tổng = 1) → đầu chẩn đoán $g$ là **Linear thuần 28→2** (không hidden layer), giống hệt kiến trúc của M2 để hai mô hình so sánh công bằng: sự khác biệt hiệu năng M2 (concept Ground Truth) so với M3 (concept dự đoán từ ảnh) phản ánh đúng phần thông tin bị mất khi phải dự đoán concept từ ảnh thay vì đọc trực tiếp từ nhãn.
+
+Huấn luyện **joint** (đồng thời) toàn bộ backbone + concept heads + $g$ bằng một hàm mất mát tổng hợp:
+
+$$L = L_{\text{diagnosis}}(\text{Weighted CE}) + \lambda \cdot \frac{1}{7}\sum_{i=1}^{7} L_{\text{concept}_i}(\text{CE})$$
+
+Gradient của $L_{\text{diagnosis}}$ truyền ngược xuyên qua vector concept soft (differentiable) tới tận backbone — đây là điểm khác biệt then chốt so với CBM "sequential/independent" (huấn luyện $f$ và $g$ tách rời).
+
+```bash
+# Giai đoạn 1: Huấn luyện joint và chọn ngưỡng trên Validation (lambda mặc định = 1.0)
+python3 experiments/run_m3.py --mode train --seed 42
+
+# Giai đoạn 2: Đánh giá chính thức trên Test Set
+python3 experiments/run_m3.py --mode test --seed 42
+```
+
+Cũng như M1, chế độ `train` chỉ dùng train/validation; checkpoint chọn theo validation Balanced Accuracy chẩn đoán tại ngưỡng 0.5, ngưỡng cuối cùng chọn trên validation của checkpoint đó. Kết quả lưu thêm `validation_concept_metrics`/`test_concept_metrics` (Macro-F1 từng concept, cả "all-defined" và "train-observed") để phân tích riêng độ chính xác của tầng bottleneck $f: x \to c$, tách biệt khỏi độ chính xác chẩn đoán cuối $g: c \to y$.
+
+Có thể chỉnh trọng số $\lambda$ giữa concept loss và diagnosis loss bằng `--concept_loss_weight` (mặc định `1.0`).
+
+---
+
+## 9. So sánh Kết quả M0 - M3 trên Test Set (395 mẫu)
+
+Kết quả thực tế đã chạy (xem file JSON tương ứng trong `results/`):
+
+| Model | Balanced Acc | Sensitivity | Specificity | F1 (Melanoma) | ROC-AUC | Ghi chú |
+|:---|:---:|:---:|:---:|:---:|:---:|:---|
+| **M0** Majority Baseline | 50.00% | 0.00% | 100.00% | 0.0000 | 0.50 | Mốc sàn, luôn đoán Non-Melanoma |
+| **M1** Black-box EfficientNet-B0 | 72.68% | 62.38% | 82.99% | 0.5888 | 0.8356 | Không dùng concept |
+| **M2** Oracle Concept (LR trên GT) | **85.37%** | 89.11% | 81.63% | 0.7347 | 0.9211 | Trần thông tin của 7 concept Ground Truth |
+| **M3** Soft Joint CBM | 70.64% | 62.38% | 78.91% | 0.5575 | 0.7565 | $g$ Linear giống M2, nhưng $c$ dự đoán từ ảnh (Concept Acc trung bình chỉ ~70%) |
+
+**Nhận xét chính:**
+* **M2 (85.37%) >> M1 (72.68%) > M3 (70.64%)**: khoảng cách rất lớn giữa M2 và M3 (~15 điểm Balanced Accuracy) cho thấy tầng bottleneck $f: x \to c$ hiện tại dự đoán concept chưa đủ tốt (Concept Macro-F1 trung bình trên test chỉ **0.4071**, riêng `vascular_structures` chỉ 0.1227 do các trạng thái hiếm) — đây chính là phần hiệu năng "mất đi" khi ép mô hình phải suy luận qua concept thay vì học trực tiếp từ ảnh như M1.
+* M3 hiện *thấp hơn* M1 một chút vì cùng một backbone EfficientNet-B0 nhưng M3 phải "chia sẻ" khả năng biểu diễn của backbone cho 7 concept head thay vì tối ưu hoàn toàn cho mục tiêu chẩn đoán, cộng với nhiễu lan truyền từ concept dự đoán sai vào $g$.
+* M2 chứng minh rằng nếu tầng concept được dự đoán chính xác (bằng Ground Truth), $g$ Linear đơn giản vẫn đạt hiệu năng cao hơn cả M1 — đây là động lực chính để đề tài đề xuất **M5 Categorical ECBM**: cải thiện tầng $f$ (qua năng lượng $E_{\text{concept}}$) và mô hình hóa tương tác Ảnh↔Concept↔Diagnosis chặt chẽ hơn CBM Joint thông thường, đồng thời hỗ trợ concept intervention để bác sĩ có thể "kéo" M3 tiến gần hơn tới trần M2.
+* Khoảng cách M2-M3 cũng là bằng chứng định lượng bổ sung cho hiện tượng Concept Inconsistency (mục 5): dù M2 dùng đúng Ground Truth, nó không đạt 100% vì 30.3% mẫu có hồ sơ concept giống nhau nhưng nhãn chẩn đoán khác nhau — đây là **trần lý thuyết tuyệt đối** của mọi CBM thuần túy trên Derm7pt, và M2 (85.37%) đã tiến rất gần trần đó.
+
+---
+
+## 10. Tài liệu Tham khảo Chính (References)
 
 1. Koh, P. W., et al. *"Concept Bottleneck Models."* International Conference on Machine Learning (ICML), 2020.
 2. Kawahara, J., et al. *"Seven-Point Checklist and Skin Lesion Classification Using Multitask Multimodal Neural Nets."* IEEE Journal of Biomedical and Health Informatics (JBHI), 2019.
