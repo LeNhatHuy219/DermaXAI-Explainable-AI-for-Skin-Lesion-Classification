@@ -25,6 +25,7 @@ from src.transforms import get_transforms
 
 class M1ProtocolTests(unittest.TestCase):
     def test_efficientnet_has_one_feature_tree_and_forward_shape(self):
+        # 1. Kiểm tra kiến trúc EfficientNet-B0: có duy nhất 1 cây trích xuất đặc trưng (1280 chiều) và đầu ra (batch, 2)
         model = BlackBoxClassifier(pretrained=False).eval()
         state_keys = model.state_dict().keys()
         self.assertFalse(any(key.startswith("backbone.") for key in state_keys))
@@ -34,6 +35,7 @@ class M1ProtocolTests(unittest.TestCase):
             self.assertEqual(tuple(model.extract_features(image).shape), (1, 1280))
 
     def test_legacy_duplicate_keys_can_be_loaded(self):
+        # 2. Kiểm tra khả năng tương thích ngược: nạp được trọng số từ các checkpoint cũ bị trùng tên prefix
         model = BlackBoxClassifier(pretrained=False)
         state = model.state_dict()
         legacy = dict(state)
@@ -42,6 +44,7 @@ class M1ProtocolTests(unittest.TestCase):
         load_blackbox_state_dict(model, legacy)
 
     def test_comparison_augmentation_and_eval_preprocessing(self):
+        # 3. Kiểm tra các bước tăng cường ảnh train và tiền xử lý LetterboxResize cho valid/test
         train_transform = get_transforms("train", augmentation_preset="comparison")
         names = [type(step).__name__ for step in train_transform.transforms]
         self.assertEqual(
@@ -55,12 +58,14 @@ class M1ProtocolTests(unittest.TestCase):
         self.assertTrue(torch.equal(valid_transform(image), valid_transform(image)))
 
     def test_pr_auc_is_average_precision(self):
+        # 4. Kiểm tra công thức PR-AUC khớp chính xác với Average Precision Score của scikit-learn
         y_true = np.array([0, 0, 1, 1])
         y_prob = np.array([0.1, 0.6, 0.4, 0.8])
         metrics = compute_metrics(y_true, (y_prob >= 0.5).astype(int), y_prob)
         self.assertAlmostEqual(metrics["pr_auc"], average_precision_score(y_true, y_prob))
 
     def test_threshold_is_selected_from_validation(self):
+        # 5. Kiểm tra thuật toán quét tìm ngưỡng quyết định tối ưu tau* trên tập validation
         threshold, bacc = select_validation_threshold(
             np.array([0, 0, 1, 1]), np.array([0.1, 0.55, 0.45, 0.8])
         )
@@ -68,6 +73,7 @@ class M1ProtocolTests(unittest.TestCase):
         self.assertAlmostEqual(bacc, 0.75)
 
     def test_train_dataloaders_exclude_test(self):
+        # 6. Kiểm tra giao thức bảo vệ dữ liệu: DataLoader huấn luyện tuyệt đối không nạp tập Test
         bundle = get_dataloaders(
             manifest_path=os.path.join(PROJECT_ROOT, "data", "manifest.csv"),
             project_root=PROJECT_ROOT,
@@ -82,10 +88,12 @@ class M1ProtocolTests(unittest.TestCase):
         self.assertNotIn("test", bundle["datasets"])
 
     def test_default_paths_are_seed_specific(self):
+        # 7. Kiểm tra đường dẫn lưu checkpoint và kết quả phải gắn liền với seed ngẫu nhiên
         self.assertNotEqual(_default_paths(42, "comparison"), _default_paths(123, "comparison"))
         self.assertNotEqual(_default_paths(42, "comparison"), _default_paths(42, "legacy_letterbox"))
 
     def test_explicit_test_mode_uses_frozen_threshold(self):
+        # 8. Kiểm tra giao thức đánh giá Test của M1: bắt buộc dùng ngưỡng tau* đã đóng băng từ validation
         manifest = os.path.join(PROJECT_ROOT, "data", "manifest.csv")
         model = BlackBoxClassifier(pretrained=False)
         config = {

@@ -1,6 +1,6 @@
 import json
 import os
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import pandas as pd
@@ -163,6 +163,62 @@ def compute_diagnosis_weights(manifest_path: str, project_root: str) -> torch.Te
     w1 = n_total / (2.0 * n_1)
 
     return torch.tensor([w0, w1], dtype=torch.float32)
+
+
+def compute_concept_statistics(
+    manifest_path: str,
+    project_root: str,
+) -> Dict[str, Dict[str, Any]]:
+    """Compute train-only class counts and balanced weights for every concept.
+
+    An unseen state receives weight 0 instead of triggering a division by zero.
+    The remaining observed states are balanced with ``N / (K_observed * N_c)``.
+    """
+    if not os.path.isabs(manifest_path):
+        manifest_path = os.path.join(project_root, manifest_path)
+    manifest_path = os.path.abspath(manifest_path)
+
+    mapping_path = os.path.join(os.path.dirname(manifest_path), "label_mapping.json")
+    if not os.path.exists(mapping_path):
+        raise FileNotFoundError(f"Missing concept mapping: {mapping_path}")
+
+    with open(mapping_path, "r", encoding="utf-8") as handle:
+        label_mapping = json.load(handle)
+
+    df = pd.read_csv(manifest_path)
+    train_df = df[df["split"] == "train"]
+    if train_df.empty:
+        raise ValueError("The manifest contains no training samples")
+
+    statistics: Dict[str, Dict[str, Any]] = {}
+    for concept_name in CONCEPT_NAMES:
+        num_classes = CONCEPT_NUM_CLASSES[concept_name]
+        mapping = label_mapping[concept_name]
+        indices = train_df[concept_name].map(mapping)
+        if indices.isna().any():
+            unknown_values = sorted(train_df.loc[indices.isna(), concept_name].astype(str).unique())
+            raise ValueError(
+                f"Unknown train values for concept {concept_name}: {unknown_values}"
+            )
+
+        counts = np.bincount(indices.astype(int).to_numpy(), minlength=num_classes)
+        observed_states = np.flatnonzero(counts > 0).astype(int).tolist()
+        if not observed_states:
+            raise ValueError(f"Concept {concept_name} has no observed training states")
+
+        weights = np.zeros(num_classes, dtype=np.float32)
+        for state_index in observed_states:
+            weights[state_index] = len(train_df) / (
+                len(observed_states) * counts[state_index]
+            )
+
+        statistics[concept_name] = {
+            "counts": counts.astype(int).tolist(),
+            "weights": weights.astype(float).tolist(),
+            "observed_states": observed_states,
+        }
+
+    return statistics
 
 
 def get_dataloaders(
