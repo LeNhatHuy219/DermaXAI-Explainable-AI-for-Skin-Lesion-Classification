@@ -11,7 +11,7 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 # Giữ đúng thứ tự import an toàn: src.dataset (kéo theo torch) trước sklearn.
-from src.dataset import CONCEPT_NAMES, CONCEPT_NUM_CLASSES  # noqa: F401
+from src.dataset import CONCEPT_NAMES, CONCEPT_NUM_CLASSES, compute_concept_statistics
 
 import numpy as np
 import pandas as pd
@@ -22,12 +22,15 @@ from experiments.run_m3 import (
     _concept_loss,
     _default_paths,
     _manifest_hash,
+    build_concept_criteria,
+    M3_PROTOCOL,
     compute_train_observed_states,
     evaluate_m3_test,
     select_validation_threshold,
 )
 from src.metrics import compute_metrics
 from src.models import SoftJointCBM, load_soft_joint_cbm_state_dict
+from src.protocol import load_concept_schema
 
 
 class M3ProtocolTests(unittest.TestCase):
@@ -58,7 +61,7 @@ class M3ProtocolTests(unittest.TestCase):
         clone = SoftJointCBM(CONCEPT_NAMES, CONCEPT_NUM_CLASSES, pretrained=False)
         load_soft_joint_cbm_state_dict(clone, state)
 
-    def test_concept_loss_is_unweighted_mean_of_seven_heads(self):
+    def test_concept_loss_is_mean_of_seven_state_weighted_heads(self):
         torch.manual_seed(0)
         batch = 4
         concept_logits = {
@@ -67,10 +70,11 @@ class M3ProtocolTests(unittest.TestCase):
         concept_indices = torch.stack([
             torch.randint(0, CONCEPT_NUM_CLASSES[name], (batch,)) for name in CONCEPT_NAMES
         ], dim=1)
-        criterion = nn.CrossEntropyLoss()
+        criterion = build_concept_criteria(
+            {c: list(range(1, CONCEPT_NUM_CLASSES[c] + 1)) for c in CONCEPT_NAMES}, torch.device("cpu"))
 
         expected = torch.stack([
-            criterion(concept_logits[name], concept_indices[:, i]) for i, name in enumerate(CONCEPT_NAMES)
+            criterion[name](concept_logits[name], concept_indices[:, i]) for i, name in enumerate(CONCEPT_NAMES)
         ]).mean()
         actual = _concept_loss(concept_logits, concept_indices, criterion)
         self.assertAlmostEqual(actual.item(), expected.item(), places=6)
@@ -101,7 +105,7 @@ class M3ProtocolTests(unittest.TestCase):
     def test_default_paths_are_config_specific(self):
         self.assertNotEqual(_default_paths(42, "legacy_letterbox", 1.0), _default_paths(123, "legacy_letterbox", 1.0))
         self.assertNotEqual(_default_paths(42, "legacy_letterbox", 1.0), _default_paths(42, "comparison", 1.0))
-        self.assertNotEqual(_default_paths(42, "legacy_letterbox", 1.0), _default_paths(42, "legacy_letterbox", 0.5))
+        self.assertEqual(_default_paths(42, "legacy_letterbox", 1.0), _default_paths(42, "legacy_letterbox", 0.5))
 
     def test_threshold_selection_matches_expected_tie_break(self):
         threshold, bacc = select_validation_threshold(
@@ -116,10 +120,14 @@ class M3ProtocolTests(unittest.TestCase):
         config = {
             "seed": 7, "augmentation_preset": "comparison", "target_size": 224,
             "batch_size": 16, "class_weights": [0.64, 2.29], "concept_loss_weight": 1.0,
+            "protocol": M3_PROTOCOL, "concept_weighting": "balanced",
+            "concept_state_weights": {c: values["weights"] for c, values in
+                                      compute_concept_statistics(manifest, PROJECT_ROOT).items()},
         }
         checkpoint = {
             "epoch": 1, "model_state_dict": model.state_dict(), "config": config,
             "decision_threshold": 0.42, "manifest_sha256": _manifest_hash(manifest),
+            "concept_schema": load_concept_schema(manifest),
         }
 
         class FakeTestDataset:

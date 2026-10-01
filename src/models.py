@@ -73,9 +73,9 @@ class SoftJointCBM(nn.Module):
     một concept head Linear riêng dự đoán logits trên không gian trạng thái Ki của nó.
     Xác suất mềm (softmax) của 7 head được nối lại thành vector bottleneck 28 chiều
     (mỗi nhóm con tổng = 1), sau đó đưa qua đầu chẩn đoán g. g là Linear thuần (không
-    có hidden layer) để đối chiếu công bằng với M2 (Logistic Regression trên concept
-    one-hot Ground Truth): sự khác biệt hiệu năng giữa M2 và M3 phản ánh đúng phần
-    thông tin bị mất khi concept phải được dự đoán từ ảnh thay vì lấy từ Ground Truth.
+    có hidden layer) để đối chiếu với M2 (Logistic Regression trên concept
+    one-hot Ground Truth). Chênh lệch kết quả còn phụ thuộc representation,
+    objective, regularization và cách tối ưu; không đo riêng concept errors.
     Toàn bộ mạng (backbone + concept heads + g) được huấn luyện đồng thời (joint) bằng
     một hàm mất mát tổng hợp, gradient của L_diagnosis truyền ngược xuyên qua các
     concept probability (soft, differentiable) tới tận backbone.

@@ -1,3 +1,4 @@
+"""M2 oracle Logistic Regression: train → validation selection → automatic test."""
 import argparse
 import hashlib
 import json
@@ -26,6 +27,9 @@ import sklearn
 from sklearn.linear_model import LogisticRegression
 
 from src.metrics import compute_metrics, print_metrics_table
+from src.protocol import (manifest_fingerprint, load_concept_schema, prepare_training_outputs,
+                          save_experiment_results,
+                          validate_manifest, validate_concept_schema)
 
 
 def _manifest_hash(manifest_path: str) -> str:
@@ -59,21 +63,18 @@ def select_validation_threshold(y_true: np.ndarray, y_prob: np.ndarray) -> Tuple
     return best_threshold, best_score
 
 # M2 - Oracle Concept Model: 7 concept Ground Truth (one-hot 28 chiều) -> Diagnosis.
-# Mục đích: đo trần thông tin (information ceiling) mà 7 concept Derm7pt thực sự chứa
-# được cho bài toán chẩn đoán, dùng Logistic Regression - một bộ phân loại g tuyến tính
-# đơn giản giống hệt kiến trúc của đầu chẩn đoán trong M3 (Soft Joint CBM) để hai mô hình
-# có thể so sánh công bằng (M2 dùng concept Ground Truth, M3 dùng concept dự đoán từ ảnh).
+# Baseline oracle tuyến tính để đánh giá concept sufficiency. Kết quả phụ thuộc
+# classifier và regularization; không phải cận trên tuyệt đối của CBM.
 
 DEFAULT_SEED = 42
 DEFAULT_C_GRID: List[float] = [0.001, 0.003, 0.01, 0.03, 0.1, 0.3, 1.0, 3.0, 10.0, 30.0, 100.0]
 
 
-def _default_paths(seed: int = DEFAULT_SEED) -> Tuple[str, str, str]:
+def _default_paths(seed: int = DEFAULT_SEED) -> Tuple[str, str]:
     stem = "m2_oracle_lr" if seed == DEFAULT_SEED else f"m2_oracle_lr_seed{seed}"
     return (
         os.path.join(PROJECT_ROOT, "checkpoints", f"{stem}_best.joblib"),
-        os.path.join(PROJECT_ROOT, "results", f"{stem}_validation.json"),
-        os.path.join(PROJECT_ROOT, "results", f"{stem}_test.json"),
+        os.path.join(PROJECT_ROOT, "results", f"{stem}_results.json"),
     )
 
 
@@ -169,18 +170,18 @@ def run_m2_experiment(
     save_results: bool = True,
     overwrite: bool = False,
 ) -> Dict[str, Any]:
-    """Chọn hyperparameter C và ngưỡng quyết định trên train/validation. Test là bước riêng."""
+    """Chọn hyperparameter C và ngưỡng quyết định chỉ bằng train/validation."""
     if manifest_path is None:
         manifest_path = os.path.join(PROJECT_ROOT, "data", "manifest.csv")
     manifest_path = os.path.abspath(manifest_path)
     if c_grid is None:
         c_grid = DEFAULT_C_GRID
+    if not c_grid or any(not np.isfinite(c) or c <= 0 for c in c_grid):
+        raise ValueError("c_grid must contain finite positive values")
 
-    default_checkpoint, default_validation, _ = _default_paths(seed)
-    if checkpoint_path is None:
-        checkpoint_path = default_checkpoint
-    if results_path is None:
-        results_path = default_validation
+    checkpoint_path, results_path = prepare_training_outputs(
+        _default_paths(seed), checkpoint_path, results_path, overwrite, save_results,
+    )
 
     _prepare_output(checkpoint_path, overwrite)
     if save_results:
@@ -189,7 +190,8 @@ def run_m2_experiment(
     print("Khởi động M2 - Oracle Concept Model (Logistic Regression trên concept Ground Truth)")
 
     df = pd.read_csv(manifest_path, dtype={"is_inconsistent_profile": bool})
-    label_mapping = _load_label_mapping(PROJECT_ROOT)
+    schema = load_concept_schema(manifest_path)
+    label_mapping = schema["label_mapping"]
 
     train_df = df[df["split"] == "train"].reset_index(drop=True)
     valid_df = df[df["split"] == "valid"].reset_index(drop=True)
@@ -242,6 +244,8 @@ def run_m2_experiment(
         "model": best_model,
         "config": config,
         "manifest_sha256": manifest_sha256,
+        "manifest_fingerprint": manifest_fingerprint(manifest_path),
+        "concept_schema": schema,
         "decision_threshold": threshold,
         "validation_metrics_at_threshold": valid_metrics,
         "concept_state_coefficients": coefficients,
@@ -263,6 +267,8 @@ def run_m2_experiment(
         "mode": "train_validation",
         "hyperparameters": config,
         "manifest_sha256": manifest_sha256,
+        "manifest_fingerprint": manifest_fingerprint(manifest_path),
+        "concept_schema": schema,
         "checkpoint_path": os.path.abspath(checkpoint_path),
         "decision_threshold": threshold,
         "summary": summary_text,
@@ -295,8 +301,8 @@ def evaluate_m2_test(
     checkpoint = joblib.load(checkpoint_path)
     if "decision_threshold" not in checkpoint or "config" not in checkpoint:
         raise ValueError("Checkpoint has no frozen validation threshold/config; use a newly trained checkpoint")
-    if checkpoint.get("manifest_sha256") != _manifest_hash(manifest_path):
-        raise ValueError("The manifest differs from the one used for training")
+    validate_manifest(checkpoint, manifest_path)
+    schema = validate_concept_schema(checkpoint, manifest_path)
 
     config = checkpoint["config"]
     threshold = float(checkpoint["decision_threshold"])
@@ -304,12 +310,12 @@ def evaluate_m2_test(
         raise ValueError("Invalid threshold in checkpoint")
 
     if results_path is None:
-        _, _, results_path = _default_paths(config["seed"])
+        _, results_path = _default_paths(config["seed"])
     if save_results:
         _prepare_output(results_path, overwrite)
 
     df = pd.read_csv(manifest_path, dtype={"is_inconsistent_profile": bool})
-    label_mapping = _load_label_mapping(PROJECT_ROOT)
+    label_mapping = schema["label_mapping"]
     test_df = df[df["split"] == "test"].reset_index(drop=True)
     assert len(test_df) == 395, "Test split phải có đúng 395 mẫu"
 
@@ -328,6 +334,8 @@ def evaluate_m2_test(
         "checkpoint_path": os.path.abspath(checkpoint_path),
         "hyperparameters": config,
         "manifest_sha256": checkpoint["manifest_sha256"],
+        "manifest_fingerprint": manifest_fingerprint(manifest_path),
+        "concept_schema": schema,
         "decision_threshold": threshold,
         "summary": test_table,
         "test_metrics": test_metrics,
@@ -335,38 +343,57 @@ def evaluate_m2_test(
     }
 
     if save_results:
-        _save_json(results_path, results)
+        save_experiment_results(results_path, test=results, overwrite=overwrite)
         print(f"Kết quả test đã lưu tại: {results_path}")
 
     return results
 
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="M2 Oracle Concept Model: train/validation, then explicit final test")
-    parser.add_argument("--mode", choices=["train", "test"], default="train")
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--mode", choices=["train", "test"], default="train", help="train: train rồi tự động test; test: đánh giá checkpoint đã lưu")
     parser.add_argument("--seed", type=int, default=DEFAULT_SEED)
     parser.add_argument("--manifest_path", type=str, default=None)
     parser.add_argument("--checkpoint_path", type=str, default=None)
-    parser.add_argument("--results_path", type=str, default=None)
+    parser.add_argument("--results_path", type=str, default=None, help="Một file JSON chứa kết quả validation và test")
     parser.add_argument("--overwrite", action="store_true", help="Cho phép ghi đè artifact của cùng run")
     parser.add_argument("--no_save", action="store_true", help="Không lưu kết quả vào file")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     if args.mode == "train":
-        run_m2_experiment(
+        checkpoint_path, results_path = prepare_training_outputs(
+            _default_paths(args.seed), args.checkpoint_path, args.results_path,
+            args.overwrite, not args.no_save,
+        )
+        validation = run_m2_experiment(
             manifest_path=args.manifest_path,
             seed=args.seed,
-            checkpoint_path=args.checkpoint_path,
-            results_path=args.results_path,
-            save_results=not args.no_save,
+            checkpoint_path=checkpoint_path,
+            save_results=False,
             overwrite=args.overwrite,
         )
+        if not args.no_save:
+            save_experiment_results(results_path, validation=validation, overwrite=args.overwrite)
+        test = evaluate_m2_test(
+            checkpoint_path=checkpoint_path, manifest_path=args.manifest_path,
+            save_results=False, overwrite=args.overwrite,
+        )
+        if not args.no_save:
+            save_experiment_results(results_path, validation=validation, test=test, overwrite=True)
     else:
         checkpoint_path = args.checkpoint_path or _default_paths(args.seed)[0]
-        evaluate_m2_test(
+        results_path = args.results_path or _default_paths(args.seed)[1]
+        if not args.no_save:
+            _prepare_output(results_path, args.overwrite)
+        test = evaluate_m2_test(
             checkpoint_path=checkpoint_path,
             manifest_path=args.manifest_path,
-            results_path=args.results_path,
-            save_results=not args.no_save,
+            save_results=False,
             overwrite=args.overwrite,
         )
+        if not args.no_save:
+            save_experiment_results(results_path, test=test, overwrite=args.overwrite)
+
+
+if __name__ == "__main__":
+    main()

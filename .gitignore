@@ -2,6 +2,15 @@
 checkpoints/
 *.pth
 *.pt
+*.joblib
+
+# Derm7pt được tải riêng; README của dữ liệu cấm phân phối lại ảnh.
+/Derm7pt/
+
+# Artifact và log của các lần chạy cục bộ
+/results/local/
+/results/logs/
+*.tmp
 
 # Python cache
 __pycache__/
@@ -16,4 +25,10 @@ __pycache__/
 venv/
 .venv/
 env/
+.env
+.env.*
 
+# Agent skills cài đặt cục bộ
+/.agents/
+/.aider-desk/
+/skills-lock.json

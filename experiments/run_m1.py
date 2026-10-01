@@ -24,6 +24,8 @@ from src.dataset import Derm7ptDataset, get_dataloaders
 from src.metrics import compute_metrics, print_metrics_table
 from src.models import BlackBoxClassifier, load_blackbox_state_dict
 from src.transforms import get_transforms
+from src.protocol import (manifest_fingerprint, validate_manifest, prepare_training_outputs,
+                          save_experiment_results)
 
 # Các tham số huấn luyện mặc định
 DEFAULT_EPOCHS = 10
@@ -177,15 +179,14 @@ def _manifest_hash(manifest_path: str) -> str:
     return digest.hexdigest()
 
 
-def _default_paths(seed: int = DEFAULT_SEED, augmentation_preset: str = DEFAULT_AUGMENTATION_PRESET) -> Tuple[str, str, str]:
-    if seed == DEFAULT_SEED and augmentation_preset == DEFAULT_AUGMENTATION_PRESET:
-        stem = "m1_efficientnet_b0"
+def _default_paths(seed: int = DEFAULT_SEED, augmentation_preset: str = DEFAULT_AUGMENTATION_PRESET) -> Tuple[str, str]:
+    if augmentation_preset == DEFAULT_AUGMENTATION_PRESET:
+        stem = f"m1_efficientnet_b0_seed{seed}"
     else:
         stem = f"m1_efficientnet_b0_{augmentation_preset}_seed{seed}"
     return (
         os.path.join(PROJECT_ROOT, "checkpoints", f"{stem}_best.pth"),
-        os.path.join(PROJECT_ROOT, "results", f"{stem}_validation.json"),
-        os.path.join(PROJECT_ROOT, "results", f"{stem}_test.json"),
+        os.path.join(PROJECT_ROOT, "results", f"{stem}_results.json"),
     )
 
 
@@ -215,7 +216,7 @@ def run_m1_experiment(
     overwrite: bool = False,
     num_workers: int = 2,
 ) -> Dict[str, Any]:
-    """Train/select on train+validation only. Test evaluation is a separate command."""
+    """Train and select the checkpoint/threshold using train and validation only."""
     if epochs < 1 or batch_size < 1 or num_workers < 0:
         raise ValueError("epochs/batch_size must be positive and num_workers non-negative")
     set_seed(seed)
@@ -224,17 +225,16 @@ def run_m1_experiment(
     if manifest_path is None:
         manifest_path = os.path.join(PROJECT_ROOT, "data", "manifest.csv")
     manifest_path = os.path.abspath(manifest_path)
-    default_checkpoint, default_validation, _ = _default_paths(seed, augmentation_preset)
-    if checkpoint_path is None:
-        checkpoint_path = default_checkpoint
-    if results_path is None:
-        results_path = default_validation
+    checkpoint_path, results_path = prepare_training_outputs(
+        _default_paths(seed, augmentation_preset), checkpoint_path, results_path,
+        overwrite, save_results,
+    )
 
     _prepare_output(checkpoint_path, overwrite)
     if save_results:
         _prepare_output(results_path, overwrite)
 
-    print("Khởi động M1 - Black-box EfficientNet-B0 (train/validation only)")
+    print("Khởi động M1 - Black-box EfficientNet-B0 (giai đoạn train/validation)")
     print(f"Thiết bị sử dụng: {device} | Random seed: {seed}")
     print(f"Cấu hình: Epochs={epochs}, Batch Size={batch_size}, LR={lr}, Weight Decay={weight_decay}, Augmentation={augmentation_preset}")
 
@@ -326,6 +326,7 @@ def run_m1_experiment(
                 "val_metrics": val_metrics,
                 "config": config,
                 "manifest_sha256": manifest_sha256,
+                "manifest_fingerprint": manifest_fingerprint(manifest_path),
             }, checkpoint_path)
 
         print(
@@ -373,6 +374,7 @@ def run_m1_experiment(
         "best_epoch": int(best_epoch),
         "hyperparameters": config,
         "manifest_sha256": manifest_sha256,
+        "manifest_fingerprint": manifest_fingerprint(manifest_path),
         "checkpoint_path": os.path.abspath(checkpoint_path),
         "decision_threshold": threshold,
         "summary": summary_text,
@@ -406,15 +408,14 @@ def evaluate_m1_test(
     checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=True)
     if "decision_threshold" not in checkpoint or "config" not in checkpoint:
         raise ValueError("Checkpoint has no frozen validation threshold/config; use a newly trained checkpoint")
-    if checkpoint.get("manifest_sha256") != _manifest_hash(manifest_path):
-        raise ValueError("The manifest differs from the one used for training")
+    validate_manifest(checkpoint, manifest_path)
 
     config = checkpoint["config"]
     threshold = float(checkpoint["decision_threshold"])
     if not 0 <= threshold <= 1:
         raise ValueError("Invalid threshold in checkpoint")
     if results_path is None:
-        _, _, results_path = _default_paths(config["seed"], config["augmentation_preset"])
+        _, results_path = _default_paths(config["seed"], config["augmentation_preset"])
     if save_results:
         _prepare_output(results_path, overwrite)
 
@@ -441,6 +442,7 @@ def evaluate_m1_test(
         "best_epoch": int(checkpoint["epoch"]),
         "hyperparameters": config,
         "manifest_sha256": checkpoint["manifest_sha256"],
+        "manifest_fingerprint": manifest_fingerprint(manifest_path),
         "decision_threshold": threshold,
         "summary": test_table,
         "test_loss": test_loss,
@@ -448,14 +450,14 @@ def evaluate_m1_test(
         "test_predictions": _extract_sample_predictions(test_dataset.df, test_preds, test_probs),
     }
     if save_results:
-        _save_json(results_path, results)
+        save_experiment_results(results_path, test=results, overwrite=overwrite)
         print(f"Kết quả test đã lưu tại: {results_path}")
     return results
 
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="M1 EfficientNet-B0: train/validation, then explicit final test")
-    parser.add_argument("--mode", choices=["train", "test"], default="train")
+def main(argv=None):
+    parser = argparse.ArgumentParser(description="M1 EfficientNet-B0: train → validation selection → automatic test")
+    parser.add_argument("--mode", choices=["train", "test"], default="train", help="train: train rồi tự động test; test: đánh giá checkpoint đã lưu")
     parser.add_argument("--epochs", type=int, default=DEFAULT_EPOCHS, help=f"Số epoch huấn luyện (mặc định: {DEFAULT_EPOCHS})")
     parser.add_argument("--batch_size", type=int, default=DEFAULT_BATCH_SIZE, help=f"Kích thước batch (mặc định: {DEFAULT_BATCH_SIZE})")
     parser.add_argument("--lr", type=float, default=DEFAULT_LR, help=f"Tốc độ học (mặc định: {DEFAULT_LR})")
@@ -471,13 +473,17 @@ if __name__ == "__main__":
     parser.add_argument("--num_workers", type=int, default=2, help="DataLoader workers khi train; dùng 0 trong notebook nếu macOS spawn gặp lỗi")
     parser.add_argument("--manifest_path", type=str, default=None)
     parser.add_argument("--checkpoint_path", type=str, default=None)
-    parser.add_argument("--results_path", type=str, default=None)
+    parser.add_argument("--results_path", type=str, default=None, help="Một file JSON chứa kết quả validation và test")
     parser.add_argument("--overwrite", action="store_true", help="Cho phép ghi đè artifact của cùng run")
     parser.add_argument("--no_save", action="store_true", help="Không lưu kết quả vào file")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     if args.mode == "train":
-        run_m1_experiment(
+        checkpoint_path, results_path = prepare_training_outputs(
+            _default_paths(args.seed, args.augmentation_preset), args.checkpoint_path,
+            args.results_path, args.overwrite, not args.no_save,
+        )
+        validation = run_m1_experiment(
             manifest_path=args.manifest_path,
             epochs=args.epochs,
             batch_size=args.batch_size,
@@ -485,20 +491,36 @@ if __name__ == "__main__":
             weight_decay=args.weight_decay,
             seed=args.seed,
             device_name=args.device,
-            checkpoint_path=args.checkpoint_path,
-            results_path=args.results_path,
-            save_results=not args.no_save,
+            checkpoint_path=checkpoint_path,
+            save_results=False,
             augmentation_preset=args.augmentation_preset,
             overwrite=args.overwrite,
             num_workers=args.num_workers,
         )
+        if not args.no_save:
+            save_experiment_results(results_path, validation=validation, overwrite=args.overwrite)
+        test = evaluate_m1_test(
+            checkpoint_path=checkpoint_path, manifest_path=args.manifest_path,
+            device_name=args.device,
+            save_results=False, overwrite=args.overwrite,
+        )
+        if not args.no_save:
+            save_experiment_results(results_path, validation=validation, test=test, overwrite=True)
     else:
         checkpoint_path = args.checkpoint_path or _default_paths(args.seed, args.augmentation_preset)[0]
-        evaluate_m1_test(
+        results_path = args.results_path or _default_paths(args.seed, args.augmentation_preset)[1]
+        if not args.no_save:
+            _prepare_output(results_path, args.overwrite)
+        test = evaluate_m1_test(
             checkpoint_path=checkpoint_path,
             manifest_path=args.manifest_path,
             device_name=args.device,
-            results_path=args.results_path,
-            save_results=not args.no_save,
+            save_results=False,
             overwrite=args.overwrite,
         )
+        if not args.no_save:
+            save_experiment_results(results_path, test=test, overwrite=args.overwrite)
+
+
+if __name__ == "__main__":
+    main()

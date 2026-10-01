@@ -14,7 +14,7 @@ from src.dataset import CONCEPT_NAMES, TOTAL_CONCEPT_STATES  # noqa: F401
 import numpy as np
 import pandas as pd
 
-from experiments.run_m2 import (
+from experiments.run_m2_lr import (
     _default_paths,
     _manifest_hash,
     _select_best_C,

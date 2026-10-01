@@ -7,6 +7,7 @@ from sklearn.metrics import (
     confusion_matrix,
     f1_score,
     precision_score,
+    recall_score,
     roc_auc_score,
 )
 
@@ -125,12 +126,23 @@ def compute_concept_metrics(
     train_observed_states: dict tên concept -> danh sách index trạng thái có mặt trong train
                            Nếu None, chỉ tính all-defined; nếu có, tính thêm train-observed.
     """
+    if not concept_true or set(concept_true) != set(concept_pred):
+        raise ValueError("Concept ground-truth and predictions must define the same nonempty groups")
+    sample_counts = {len(np.asarray(v)) for v in list(concept_true.values()) + list(concept_pred.values())}
+    if len(sample_counts) != 1 or 0 in sample_counts:
+        raise ValueError("Concept arrays must have equal nonzero lengths and aligned case order")
     per_concept = {}
+    profile_correct = np.ones(next(iter(sample_counts)), dtype=bool)
 
     for c_name in concept_true:
         y_true_c = np.asarray(concept_true[c_name]).astype(int)
         y_pred_c = np.asarray(concept_pred[c_name]).astype(int)
         n_classes = concept_num_classes[c_name]
+        if (y_true_c.ndim != 1 or y_pred_c.ndim != 1 or
+                np.any((y_true_c < 0) | (y_true_c >= n_classes)) or
+                np.any((y_pred_c < 0) | (y_pred_c >= n_classes))):
+            raise ValueError(f"Invalid categorical labels for {c_name}")
+        profile_correct &= y_true_c == y_pred_c
 
         # All-defined Macro-F1: tính trên toàn bộ Ki states
         all_labels = list(range(n_classes))
@@ -139,11 +151,28 @@ def compute_concept_metrics(
 
         # Accuracy của concept này
         acc_c = float(accuracy_score(y_true_c, y_pred_c))
+        balanced_acc_all = float(
+            recall_score(
+                y_true_c,
+                y_pred_c,
+                labels=all_labels,
+                average="macro",
+                zero_division=0,
+            )
+        )
+        cm_all = confusion_matrix(y_true_c, y_pred_c, labels=all_labels)
+        support_all = np.bincount(y_true_c, minlength=n_classes).astype(int)
+        state_f1 = f1_score(y_true_c, y_pred_c, labels=all_labels,
+                            average=None, zero_division=0)
 
         entry = {
             "accuracy": acc_c,
             "f1_macro_all_defined": f1_all,
+            "balanced_accuracy_all_defined": balanced_acc_all,
             "num_states_all": n_classes,
+            "support": support_all.tolist(),
+            "confusion_matrix": cm_all.astype(int).tolist(),
+            "per_state_f1": state_f1.astype(float).tolist(),
         }
 
         # Train-observed Macro-F1: chỉ tính trên states đã thấy trong train
@@ -151,7 +180,17 @@ def compute_concept_metrics(
             obs_labels = sorted(train_observed_states[c_name])
             f1_obs = float(f1_score(y_true_c, y_pred_c, labels=obs_labels,
                                     average="macro", zero_division=0))
+            balanced_acc_obs = float(
+                recall_score(
+                    y_true_c,
+                    y_pred_c,
+                    labels=obs_labels,
+                    average="macro",
+                    zero_division=0,
+                )
+            )
             entry["f1_macro_train_observed"] = f1_obs
+            entry["balanced_accuracy_train_observed"] = balanced_acc_obs
             entry["num_states_train_observed"] = len(obs_labels)
 
         per_concept[c_name] = entry
@@ -164,6 +203,7 @@ def compute_concept_metrics(
     result = {
         "overall_concept_accuracy": float(overall_acc),
         "overall_f1_macro_all_defined": float(overall_f1_all),
+        "exact_match_accuracy": float(profile_correct.mean()),
         "per_concept": per_concept,
     }
 
