@@ -1,0 +1,24 @@
+{
+  "concept_loss_trajectory_max_abs_difference": {
+    "0.0001": 0.0,
+    "0.0005": 0.0,
+    "0.001": 0.0
+  },
+  "paired_stratified_bootstrap": {
+    "resamples": 2000,
+    "rng_seed": 12345,
+    "case_count": 395,
+    "model_seeds": [
+      42,
+      123,
+      2026
+    ],
+    "selected_head_lr": 0.001,
+    "delta_test_balanced_accuracy": 0.0981286904200624,
+    "percentile_95_ci": [
+      0.05719323207830986,
+      0.1381875687568757
+    ],
+    "conditioning": "fixed checkpoints, model seeds and validation thresholds; case uncertainty only"
+  }
+}

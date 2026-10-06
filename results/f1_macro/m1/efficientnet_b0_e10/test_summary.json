@@ -1,0 +1,153 @@
+{
+  "model": "M1_BlackBox_EfficientNetB0",
+  "seeds": [
+    42,
+    123,
+    2026
+  ],
+  "num_seeds": 3,
+  "training_protocol": {
+    "backbone": "EfficientNet-B0",
+    "pretrained_weights": "EfficientNet_B0_Weights.DEFAULT",
+    "epochs": 10,
+    "batch_size": 16,
+    "learning_rate": 0.0001,
+    "weight_decay": 0.01,
+    "loss": "Weighted_CrossEntropy",
+    "class_weights": [
+      0.6393188834190369,
+      2.2944445610046387
+    ],
+    "augmentation_preset": "legacy_letterbox",
+    "target_size": 224,
+    "scheduler": "CosineAnnealingLR(eta_min=1e-6)",
+    "checkpoint_selection": "validation_f1_macro_at_0.5",
+    "threshold_selection": "maximize_validation_balanced_accuracy_tie_nearest_0.5"
+  },
+  "manifest_fingerprint": {
+    "version": "newline_lf_v1",
+    "raw_sha256": "e21cdc7756f12c3ad6684d27edff0e63f96097ee955c2b0e9c5f25c50e3ac102",
+    "normalized_sha256": "e21cdc7756f12c3ad6684d27edff0e63f96097ee955c2b0e9c5f25c50e3ac102"
+  },
+  "diagnosis_metrics": {
+    "accuracy": {
+      "mean": 0.7789029535864979,
+      "sample_sd": 0.005270040504977517,
+      "values": [
+        0.7772151898734178,
+        0.7746835443037975,
+        0.7848101265822784
+      ]
+    },
+    "balanced_accuracy": {
+      "mean": 0.7073988011046003,
+      "sample_sd": 0.0187662720382372,
+      "values": [
+        0.7268471745133698,
+        0.6893985316899036,
+        0.7059506971105274
+      ]
+    },
+    "f1_macro": {
+      "mean": 0.7078390111425641,
+      "sample_sd": 0.011805244893108255,
+      "values": [
+        0.7180036344755971,
+        0.6948906883293844,
+        0.7106227106227105
+      ]
+    },
+    "f1_melanoma": {
+      "mean": 0.563915904819493,
+      "sample_sd": 0.024962994956558654,
+      "values": [
+        0.5887850467289719,
+        0.538860103626943,
+        0.5641025641025641
+      ]
+    },
+    "precision": {
+      "mean": 0.5692819660589589,
+      "sample_sd": 0.014234233848993706,
+      "values": [
+        0.5575221238938053,
+        0.5652173913043478,
+        0.5851063829787234
+      ]
+    },
+    "sensitivity": {
+      "mean": 0.5610561056105611,
+      "sample_sd": 0.056299412901755705,
+      "values": [
+        0.6237623762376238,
+        0.5148514851485149,
+        0.5445544554455446
+      ]
+    },
+    "specificity": {
+      "mean": 0.8537414965986394,
+      "sample_sd": 0.02068966847040207,
+      "values": [
+        0.8299319727891157,
+        0.8639455782312925,
+        0.8673469387755102
+      ]
+    },
+    "roc_auc": {
+      "mean": 0.8302350643227587,
+      "sample_sd": 0.006229122540721917,
+      "values": [
+        0.8355896814171213,
+        0.823398666397252,
+        0.8317168451539032
+      ]
+    },
+    "pr_auc": {
+      "mean": 0.6607510070678622,
+      "sample_sd": 0.011452208045832468,
+      "values": [
+        0.6482529562986228,
+        0.6632580925341821,
+        0.6707419723707817
+      ]
+    }
+  },
+  "sd_definition": "sample SD between seeds; not sample CI",
+  "source_paths": [
+    "/Users/nhathuy/Desktop/HK1_26-27/KLTN/DermaXAI-Explainable-AI-for-Skin-Lesion-Classification/results/f1_macro/m1/efficientnet_b0_e10/seed42.json",
+    "/Users/nhathuy/Desktop/HK1_26-27/KLTN/DermaXAI-Explainable-AI-for-Skin-Lesion-Classification/results/f1_macro/m1/efficientnet_b0_e10/seed123.json",
+    "/Users/nhathuy/Desktop/HK1_26-27/KLTN/DermaXAI-Explainable-AI-for-Skin-Lesion-Classification/results/f1_macro/m1/efficientnet_b0_e10/seed2026.json"
+  ],
+  "environments": [
+    {
+      "device": "mps",
+      "num_workers": 2,
+      "numpy_version": "1.26.2",
+      "pandas_version": "2.3.2",
+      "platform": "macOS-26.7.1-arm64-arm-64bit",
+      "scikit_learn_version": "1.7.2",
+      "torch_version": "2.14.0",
+      "torchvision_version": "0.29.0"
+    },
+    {
+      "device": "mps",
+      "num_workers": 2,
+      "numpy_version": "1.26.2",
+      "pandas_version": "2.3.2",
+      "platform": "macOS-26.7.1-arm64-arm-64bit",
+      "scikit_learn_version": "1.7.2",
+      "torch_version": "2.14.0",
+      "torchvision_version": "0.29.0"
+    },
+    {
+      "device": "mps",
+      "num_workers": 2,
+      "numpy_version": "1.26.2",
+      "pandas_version": "2.3.2",
+      "platform": "macOS-26.7.1-arm64-arm-64bit",
+      "scikit_learn_version": "1.7.2",
+      "torch_version": "2.14.0",
+      "torchvision_version": "0.29.0"
+    }
+  ]
+}

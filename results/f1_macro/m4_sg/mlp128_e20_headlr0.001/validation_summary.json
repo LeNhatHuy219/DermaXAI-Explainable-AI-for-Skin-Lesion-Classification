@@ -1,0 +1,514 @@
+{
+  "model": "M4_HardStopGradientCBM",
+  "mode": "validation_summary",
+  "split": "valid",
+  "created_at_utc": "2026-10-04T15:07:32.469226+00:00",
+  "seeds": [
+    42,
+    123,
+    2026
+  ],
+  "num_seeds": 3,
+  "num_validation_cases": 203,
+  "training_protocol": {
+    "model": "M4_HardStopGradientCBM",
+    "protocol": "hard_joint_sg_state_weighted_v1",
+    "gradient_estimator": "stop_gradient",
+    "bottleneck": "categorical_onehot",
+    "softmax_temperature": 1.0,
+    "backbone": "EfficientNet-B0",
+    "pretrained_weights": "EfficientNet_B0_Weights.DEFAULT",
+    "diagnosis_head": "MLP(28, 128, 2)",
+    "concept_heads": "Linear(1280, Ki) per concept",
+    "epochs": 20,
+    "batch_size": 16,
+    "learning_rate": 0.0001,
+    "weight_decay": 0.01,
+    "concept_loss_weight": 1.0,
+    "diagnosis_loss": "Weighted_CrossEntropy",
+    "concept_loss": "Multi-Head_CrossEntropy_balanced_mean",
+    "concept_weighting": "balanced",
+    "concept_state_weights": {
+      "pigment_network": [
+        0.8604166507720947,
+        1.480286717414856,
+        0.8604166507720947
+      ],
+      "streaks": [
+        0.504273533821106,
+        1.3630362749099731,
+        3.529914617538452
+      ],
+      "pigmentation": [
+        0.40810278058052063,
+        1.0325000286102295,
+        2.346590995788574,
+        6.453125,
+        0.0
+      ],
+      "regression_structures": [
+        0.3257097899913788,
+        2.4583332538604736,
+        2.581249952316284,
+        7.375
+      ],
+      "dots_and_globules": [
+        1.6388888359069824,
+        0.7957611083984375,
+        0.882478654384613
+      ],
+      "blue_whitish_veil": [
+        0.6091445684432983,
+        2.7905404567718506
+      ],
+      "vascular_structures": [
+        0.14877521991729736,
+        4.302083492279053,
+        6.453125,
+        2.868055582046509,
+        12.90625,
+        10.324999809265137,
+        2.868055582046509,
+        51.625
+      ]
+    },
+    "concept_train_statistics": {
+      "pigment_network": {
+        "counts": [
+          160,
+          93,
+          160
+        ],
+        "weights": [
+          0.8604166507720947,
+          1.480286717414856,
+          0.8604166507720947
+        ],
+        "observed_states": [
+          0,
+          1,
+          2
+        ]
+      },
+      "streaks": {
+        "counts": [
+          273,
+          101,
+          39
+        ],
+        "weights": [
+          0.504273533821106,
+          1.3630362749099731,
+          3.529914617538452
+        ],
+        "observed_states": [
+          0,
+          1,
+          2
+        ]
+      },
+      "pigmentation": {
+        "counts": [
+          253,
+          100,
+          44,
+          16,
+          0
+        ],
+        "weights": [
+          0.40810278058052063,
+          1.0325000286102295,
+          2.346590995788574,
+          6.453125,
+          0.0
+        ],
+        "observed_states": [
+          0,
+          1,
+          2,
+          3
+        ]
+      },
+      "regression_structures": {
+        "counts": [
+          317,
+          42,
+          40,
+          14
+        ],
+        "weights": [
+          0.3257097899913788,
+          2.4583332538604736,
+          2.581249952316284,
+          7.375
+        ],
+        "observed_states": [
+          0,
+          1,
+          2,
+          3
+        ]
+      },
+      "dots_and_globules": {
+        "counts": [
+          84,
+          173,
+          156
+        ],
+        "weights": [
+          1.6388888359069824,
+          0.7957611083984375,
+          0.882478654384613
+        ],
+        "observed_states": [
+          0,
+          1,
+          2
+        ]
+      },
+      "blue_whitish_veil": {
+        "counts": [
+          339,
+          74
+        ],
+        "weights": [
+          0.6091445684432983,
+          2.7905404567718506
+        ],
+        "observed_states": [
+          0,
+          1
+        ]
+      },
+      "vascular_structures": {
+        "counts": [
+          347,
+          12,
+          8,
+          18,
+          4,
+          5,
+          18,
+          1
+        ],
+        "weights": [
+          0.14877521991729736,
+          4.302083492279053,
+          6.453125,
+          2.868055582046509,
+          12.90625,
+          10.324999809265137,
+          2.868055582046509,
+          51.625
+        ],
+        "observed_states": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7
+        ]
+      }
+    },
+    "dropout": 0.2,
+    "class_weights": [
+      0.6393188834190369,
+      2.2944445610046387
+    ],
+    "augmentation_preset": "legacy_letterbox",
+    "target_size": 224,
+    "scheduler": "CosineAnnealingLR(eta_min=1e-6)",
+    "checkpoint_selection": "validation_f1_macro_at_0.5",
+    "threshold_selection": "maximize_validation_balanced_accuracy_tie_nearest_0.5",
+    "diagnosis_learning_rate": 0.001,
+    "optimizer_parameter_groups": "concept_predictor_and_diagnosis_head",
+    "diagnosis_hidden_dim": 128,
+    "diagnosis_dropout": 0.3,
+    "diagnosis_normalization": "LayerNorm"
+  },
+  "manifest_fingerprint": {
+    "version": "newline_lf_v1",
+    "raw_sha256": "e21cdc7756f12c3ad6684d27edff0e63f96097ee955c2b0e9c5f25c50e3ac102",
+    "normalized_sha256": "e21cdc7756f12c3ad6684d27edff0e63f96097ee955c2b0e9c5f25c50e3ac102"
+  },
+  "concept_schema": {
+    "version": 1,
+    "concept_names": [
+      "pigment_network",
+      "streaks",
+      "pigmentation",
+      "regression_structures",
+      "dots_and_globules",
+      "blue_whitish_veil",
+      "vascular_structures"
+    ],
+    "concept_num_classes": {
+      "pigment_network": 3,
+      "streaks": 3,
+      "pigmentation": 5,
+      "regression_structures": 4,
+      "dots_and_globules": 3,
+      "blue_whitish_veil": 2,
+      "vascular_structures": 8
+    },
+    "offsets": {
+      "pigment_network": 0,
+      "streaks": 3,
+      "pigmentation": 6,
+      "regression_structures": 11,
+      "dots_and_globules": 15,
+      "blue_whitish_veil": 18,
+      "vascular_structures": 20
+    },
+    "total_states": 28,
+    "label_mapping": {
+      "pigment_network": {
+        "absent": 0,
+        "atypical": 1,
+        "typical": 2
+      },
+      "streaks": {
+        "absent": 0,
+        "irregular": 1,
+        "regular": 2
+      },
+      "pigmentation": {
+        "absent": 0,
+        "diffuse irregular": 1,
+        "diffuse regular": 2,
+        "localized irregular": 3,
+        "localized regular": 4
+      },
+      "regression_structures": {
+        "absent": 0,
+        "blue areas": 1,
+        "combinations": 2,
+        "white areas": 3
+      },
+      "dots_and_globules": {
+        "absent": 0,
+        "irregular": 1,
+        "regular": 2
+      },
+      "blue_whitish_veil": {
+        "absent": 0,
+        "present": 1
+      },
+      "vascular_structures": {
+        "absent": 0,
+        "arborizing": 1,
+        "comma": 2,
+        "dotted": 3,
+        "hairpin": 4,
+        "linear irregular": 5,
+        "within regression": 6,
+        "wreath": 7
+      }
+    },
+    "sha256": "cf680abdaa56e5b608e85addaff15f078abb73f18f655923effd4125823c8365"
+  },
+  "diagnosis_metrics_at_0.5": {
+    "accuracy": {
+      "mean": 0.7980295566502463,
+      "sample_sd": 0.014778325123152691,
+      "values": [
+        0.7832512315270936,
+        0.812807881773399,
+        0.7980295566502463
+      ]
+    },
+    "balanced_accuracy": {
+      "mean": 0.7558877857307781,
+      "sample_sd": 0.016167083837890294,
+      "values": [
+        0.7375317478642346,
+        0.7680096975294389,
+        0.7621219117986608
+      ]
+    },
+    "f1_macro": {
+      "mean": 0.7578831963859963,
+      "sample_sd": 0.016836902567162415,
+      "values": [
+        0.7397435897435898,
+        0.7730108286252354,
+        0.7608951707891637
+      ]
+    },
+    "f1_melanoma": {
+      "mean": 0.659322033898305,
+      "sample_sd": 0.02320514438182243,
+      "values": [
+        0.6333333333333333,
+        0.6779661016949152,
+        0.6666666666666666
+      ]
+    },
+    "precision": {
+      "mean": 0.6690375017185756,
+      "sample_sd": 0.029613337135352885,
+      "values": [
+        0.6440677966101694,
+        0.7017543859649122,
+        0.6612903225806451
+      ]
+    },
+    "sensitivity": {
+      "mean": 0.6502732240437159,
+      "sample_sd": 0.025041397240195815,
+      "values": [
+        0.6229508196721312,
+        0.6557377049180327,
+        0.6721311475409836
+      ]
+    },
+    "specificity": {
+      "mean": 0.8615023474178404,
+      "sample_sd": 0.016263387864496544,
+      "values": [
+        0.852112676056338,
+        0.8802816901408451,
+        0.852112676056338
+      ]
+    },
+    "roc_auc": {
+      "mean": 0.7902332024936505,
+      "sample_sd": 0.01594743796451378,
+      "values": [
+        0.771877164627107,
+        0.8006811359963056,
+        0.7981413068575387
+      ]
+    },
+    "pr_auc": {
+      "mean": 0.6350254252457537,
+      "sample_sd": 0.05662310788383816,
+      "values": [
+        0.5776938718744256,
+        0.690912445243355,
+        0.6364699586194804
+      ]
+    }
+  },
+  "diagnosis_metrics_at_frozen_threshold": {
+    "accuracy": {
+      "mean": 0.7980295566502464,
+      "sample_sd": 0.017761336332334902,
+      "values": [
+        0.7783251231527094,
+        0.812807881773399,
+        0.8029556650246306
+      ]
+    },
+    "balanced_accuracy": {
+      "mean": 0.7605633802816901,
+      "sample_sd": 0.0192653487998788,
+      "values": [
+        0.7386862156545833,
+        0.7680096975294389,
+        0.7749942276610482
+      ]
+    },
+    "f1_macro": {
+      "mean": 0.7601399896149519,
+      "sample_sd": 0.01961216333923337,
+      "values": [
+        0.7375678703783504,
+        0.7730108286252354,
+        0.7698412698412698
+      ]
+    },
+    "f1_melanoma": {
+      "mean": 0.6648840418993375,
+      "sample_sd": 0.02671767357952978,
+      "values": [
+        0.6341463414634146,
+        0.6779661016949152,
+        0.6825396825396826
+      ]
+    },
+    "precision": {
+      "mean": 0.6641083685226299,
+      "sample_sd": 0.036429113192896295,
+      "values": [
+        0.6290322580645161,
+        0.7017543859649122,
+        0.6615384615384615
+      ]
+    },
+    "sensitivity": {
+      "mean": 0.6666666666666666,
+      "sample_sd": 0.03412567212239561,
+      "values": [
+        0.639344262295082,
+        0.6557377049180327,
+        0.7049180327868853
+      ]
+    },
+    "specificity": {
+      "mean": 0.8544600938967136,
+      "sample_sd": 0.0226376778427065,
+      "values": [
+        0.8380281690140845,
+        0.8802816901408451,
+        0.8450704225352113
+      ]
+    },
+    "roc_auc": {
+      "mean": 0.7902332024936505,
+      "sample_sd": 0.01594743796451378,
+      "values": [
+        0.771877164627107,
+        0.8006811359963056,
+        0.7981413068575387
+      ]
+    },
+    "pr_auc": {
+      "mean": 0.6350254252457537,
+      "sample_sd": 0.05662310788383816,
+      "values": [
+        0.5776938718744256,
+        0.690912445243355,
+        0.6364699586194804
+      ]
+    }
+  },
+  "concept_metrics": {
+    "overall_concept_accuracy": {
+      "mean": 0.6584564860426929,
+      "sample_sd": 0.005090906501104975,
+      "values": [
+        0.6558761435608726,
+        0.6643209007741027,
+        0.6551724137931034
+      ]
+    },
+    "overall_f1_macro_all_defined": {
+      "mean": 0.519380040197248,
+      "sample_sd": 0.007599535592986976,
+      "values": [
+        0.5234478113736658,
+        0.5106124431902668,
+        0.5240798660278113
+      ]
+    },
+    "exact_match_accuracy": {
+      "mean": 0.0574712643678161,
+      "sample_sd": 0.01729992406051353,
+      "values": [
+        0.07389162561576355,
+        0.059113300492610835,
+        0.03940886699507389
+      ]
+    }
+  },
+  "sd_definition": "sample SD between seeds (ddof=1); not a case-level CI",
+  "source_paths": [
+    "/Users/nhathuy/Desktop/HK1_26-27/KLTN/DermaXAI-Explainable-AI-for-Skin-Lesion-Classification/results/f1_macro/m4_sg/mlp128_e20_headlr0.001/seed42.json",
+    "/Users/nhathuy/Desktop/HK1_26-27/KLTN/DermaXAI-Explainable-AI-for-Skin-Lesion-Classification/results/f1_macro/m4_sg/mlp128_e20_headlr0.001/seed123.json",
+    "/Users/nhathuy/Desktop/HK1_26-27/KLTN/DermaXAI-Explainable-AI-for-Skin-Lesion-Classification/results/f1_macro/m4_sg/mlp128_e20_headlr0.001/seed2026.json"
+  ]
+}

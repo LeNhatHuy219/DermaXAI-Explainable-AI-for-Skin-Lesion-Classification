@@ -1,0 +1,42 @@
+{
+  "seeds": [
+    42,
+    123,
+    2026
+  ],
+  "epochs": 20,
+  "concept_learning_rate": 0.0001,
+  "diagnosis_learning_rate": 0.001,
+  "heads": {
+    "linear": "Linear(28, 2)",
+    "mlp128": "MLP(28, 128, 2)"
+  },
+  "variants": [
+    "st",
+    "sg"
+  ],
+  "weight_decay": 0.01,
+  "batch_size": 16,
+  "augmentation_preset": "legacy_letterbox",
+  "reused_sg_linear": [
+    {
+      "seed": 42,
+      "results": "/Users/nhathuy/Desktop/HK1_26-27/KLTN/DermaXAI-Explainable-AI-for-Skin-Lesion-Classification/results/bacc/ablation/m4_sg_head_lr_study/m4_sg/linear_e20_headlr0.001/seed42.json",
+      "checkpoint_sha256": "9333b33435efc2bf42048fe0b0e7c0939a7fcb46b4a16b938693301044314abf"
+    },
+    {
+      "seed": 123,
+      "results": "/Users/nhathuy/Desktop/HK1_26-27/KLTN/DermaXAI-Explainable-AI-for-Skin-Lesion-Classification/results/bacc/ablation/m4_sg_head_lr_study/m4_sg/linear_e20_headlr0.001/seed123.json",
+      "checkpoint_sha256": "fbb7bc38ec89de580f13c0b41915cc4e9b85dc3fb709efcaa0752d412547388f"
+    },
+    {
+      "seed": 2026,
+      "results": "/Users/nhathuy/Desktop/HK1_26-27/KLTN/DermaXAI-Explainable-AI-for-Skin-Lesion-Classification/results/bacc/ablation/m4_sg_head_lr_study/m4_sg/linear_e20_headlr0.001/seed2026.json",
+      "checkpoint_sha256": "523022d701462b2103a1262f3e65abd0576c33a32d4d1c81bd8042cbfc6511ab"
+    }
+  ],
+  "selection": "per variant: highest mean validation BAcc at 0.5; tie: Linear",
+  "test_evaluation": "Linear controls plus selected heads after freezing; other heads remain validation-only",
+  "device_request": "mps",
+  "torch_version": "2.12.0"
+}

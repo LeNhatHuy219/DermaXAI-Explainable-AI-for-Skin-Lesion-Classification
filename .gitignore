@@ -1,5 +1,8 @@
-# Checkpoint mô hình
-checkpoints/
+# Weights giữ cục bộ; README và manifest checkpoint được lưu trong Git.
+/checkpoints/**
+!/checkpoints/**/
+!/checkpoints/**/*.md
+!/checkpoints/**/manifest.json
 *.pth
 *.pt
 *.joblib
@@ -17,6 +20,7 @@ __pycache__/
 *.py[cod]
 *$py.class
 .pytest_cache/
+.matplotlib/
 
 # Hệ điều hành macOS
 .DS_Store

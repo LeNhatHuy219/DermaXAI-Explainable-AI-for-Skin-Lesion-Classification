@@ -1,0 +1,303 @@
+{
+  "model": "M4_HardStopGradientCBM",
+  "mode": "frozen_validation_selection",
+  "created_at_utc": "2026-10-04T15:07:32.469226+00:00",
+  "decision": "Use MLP128, head LR 0.001, concept/backbone LR 0.0001 and 20 epochs for this M4-SG follow-up cohort; evaluate all three frozen checkpoints.",
+  "selection_metric": "mean_validation_f1_macro_at_0.5_across_seeds",
+  "selected_training_protocol": {
+    "model": "M4_HardStopGradientCBM",
+    "protocol": "hard_joint_sg_state_weighted_v1",
+    "gradient_estimator": "stop_gradient",
+    "bottleneck": "categorical_onehot",
+    "softmax_temperature": 1.0,
+    "backbone": "EfficientNet-B0",
+    "pretrained_weights": "EfficientNet_B0_Weights.DEFAULT",
+    "diagnosis_head": "MLP(28, 128, 2)",
+    "concept_heads": "Linear(1280, Ki) per concept",
+    "epochs": 20,
+    "batch_size": 16,
+    "learning_rate": 0.0001,
+    "weight_decay": 0.01,
+    "concept_loss_weight": 1.0,
+    "diagnosis_loss": "Weighted_CrossEntropy",
+    "concept_loss": "Multi-Head_CrossEntropy_balanced_mean",
+    "concept_weighting": "balanced",
+    "concept_state_weights": {
+      "pigment_network": [
+        0.8604166507720947,
+        1.480286717414856,
+        0.8604166507720947
+      ],
+      "streaks": [
+        0.504273533821106,
+        1.3630362749099731,
+        3.529914617538452
+      ],
+      "pigmentation": [
+        0.40810278058052063,
+        1.0325000286102295,
+        2.346590995788574,
+        6.453125,
+        0.0
+      ],
+      "regression_structures": [
+        0.3257097899913788,
+        2.4583332538604736,
+        2.581249952316284,
+        7.375
+      ],
+      "dots_and_globules": [
+        1.6388888359069824,
+        0.7957611083984375,
+        0.882478654384613
+      ],
+      "blue_whitish_veil": [
+        0.6091445684432983,
+        2.7905404567718506
+      ],
+      "vascular_structures": [
+        0.14877521991729736,
+        4.302083492279053,
+        6.453125,
+        2.868055582046509,
+        12.90625,
+        10.324999809265137,
+        2.868055582046509,
+        51.625
+      ]
+    },
+    "concept_train_statistics": {
+      "pigment_network": {
+        "counts": [
+          160,
+          93,
+          160
+        ],
+        "weights": [
+          0.8604166507720947,
+          1.480286717414856,
+          0.8604166507720947
+        ],
+        "observed_states": [
+          0,
+          1,
+          2
+        ]
+      },
+      "streaks": {
+        "counts": [
+          273,
+          101,
+          39
+        ],
+        "weights": [
+          0.504273533821106,
+          1.3630362749099731,
+          3.529914617538452
+        ],
+        "observed_states": [
+          0,
+          1,
+          2
+        ]
+      },
+      "pigmentation": {
+        "counts": [
+          253,
+          100,
+          44,
+          16,
+          0
+        ],
+        "weights": [
+          0.40810278058052063,
+          1.0325000286102295,
+          2.346590995788574,
+          6.453125,
+          0.0
+        ],
+        "observed_states": [
+          0,
+          1,
+          2,
+          3
+        ]
+      },
+      "regression_structures": {
+        "counts": [
+          317,
+          42,
+          40,
+          14
+        ],
+        "weights": [
+          0.3257097899913788,
+          2.4583332538604736,
+          2.581249952316284,
+          7.375
+        ],
+        "observed_states": [
+          0,
+          1,
+          2,
+          3
+        ]
+      },
+      "dots_and_globules": {
+        "counts": [
+          84,
+          173,
+          156
+        ],
+        "weights": [
+          1.6388888359069824,
+          0.7957611083984375,
+          0.882478654384613
+        ],
+        "observed_states": [
+          0,
+          1,
+          2
+        ]
+      },
+      "blue_whitish_veil": {
+        "counts": [
+          339,
+          74
+        ],
+        "weights": [
+          0.6091445684432983,
+          2.7905404567718506
+        ],
+        "observed_states": [
+          0,
+          1
+        ]
+      },
+      "vascular_structures": {
+        "counts": [
+          347,
+          12,
+          8,
+          18,
+          4,
+          5,
+          18,
+          1
+        ],
+        "weights": [
+          0.14877521991729736,
+          4.302083492279053,
+          6.453125,
+          2.868055582046509,
+          12.90625,
+          10.324999809265137,
+          2.868055582046509,
+          51.625
+        ],
+        "observed_states": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7
+        ]
+      }
+    },
+    "dropout": 0.2,
+    "class_weights": [
+      0.6393188834190369,
+      2.2944445610046387
+    ],
+    "augmentation_preset": "legacy_letterbox",
+    "target_size": 224,
+    "scheduler": "CosineAnnealingLR(eta_min=1e-6)",
+    "checkpoint_selection": "validation_f1_macro_at_0.5",
+    "threshold_selection": "maximize_validation_balanced_accuracy_tie_nearest_0.5",
+    "diagnosis_learning_rate": 0.001,
+    "optimizer_parameter_groups": "concept_predictor_and_diagnosis_head",
+    "diagnosis_hidden_dim": 128,
+    "diagnosis_dropout": 0.3,
+    "diagnosis_normalization": "LayerNorm"
+  },
+  "candidates": [
+    {
+      "name": "original_linear_10epochs_shared_lr0.0001",
+      "validation_selection_score": {
+        "mean": 0.5023136098704697,
+        "sample_sd": 0.03546637311263107,
+        "values": [
+          0.48302808302808303,
+          0.5432439900525007,
+          0.48066875653082547
+        ]
+      },
+      "source_paths": [
+        "/Users/nhathuy/Desktop/HK1_26-27/KLTN/DermaXAI-Explainable-AI-for-Skin-Lesion-Classification/results/f1_macro/m4_sg/linear_e10/seed42.json",
+        "/Users/nhathuy/Desktop/HK1_26-27/KLTN/DermaXAI-Explainable-AI-for-Skin-Lesion-Classification/results/f1_macro/m4_sg/linear_e10/seed123.json",
+        "/Users/nhathuy/Desktop/HK1_26-27/KLTN/DermaXAI-Explainable-AI-for-Skin-Lesion-Classification/results/f1_macro/m4_sg/linear_e10/seed2026.json"
+      ]
+    },
+    {
+      "name": "mlp128_20epochs_headlr0.001",
+      "validation_selection_score": {
+        "mean": 0.7578831963859963,
+        "sample_sd": 0.016836902567162415,
+        "values": [
+          0.7397435897435898,
+          0.7730108286252354,
+          0.7608951707891637
+        ]
+      },
+      "selected": true,
+      "source_paths": [
+        "/Users/nhathuy/Desktop/HK1_26-27/KLTN/DermaXAI-Explainable-AI-for-Skin-Lesion-Classification/results/f1_macro/m4_sg/mlp128_e20_headlr0.001/seed42.json",
+        "/Users/nhathuy/Desktop/HK1_26-27/KLTN/DermaXAI-Explainable-AI-for-Skin-Lesion-Classification/results/f1_macro/m4_sg/mlp128_e20_headlr0.001/seed123.json",
+        "/Users/nhathuy/Desktop/HK1_26-27/KLTN/DermaXAI-Explainable-AI-for-Skin-Lesion-Classification/results/f1_macro/m4_sg/mlp128_e20_headlr0.001/seed2026.json"
+      ]
+    }
+  ],
+  "seeds": [
+    42,
+    123,
+    2026
+  ],
+  "frozen_runs": [
+    {
+      "seed": 42,
+      "results_path": "/Users/nhathuy/Desktop/HK1_26-27/KLTN/DermaXAI-Explainable-AI-for-Skin-Lesion-Classification/results/f1_macro/m4_sg/mlp128_e20_headlr0.001/seed42.json",
+      "validation_export_sha256_before_test": "6812f9171cf4af1fe07248b877fd776bdda4a525abf21f94c2a5f970a4c29ad4",
+      "checkpoint_path": "/Users/nhathuy/Desktop/HK1_26-27/KLTN/DermaXAI-Explainable-AI-for-Skin-Lesion-Classification/checkpoints/f1_macro/m4_hard_sg_cbm_mlp128_headlr0.001_epochs20_seed42_ckptf1macro_best.pth",
+      "checkpoint_sha256": "3870bbd97cf4aaacd935e0b2179e6e029baad99bec7b7a5d7fa5963563699d3b",
+      "best_epoch": 17,
+      "decision_threshold": 0.4700527489185333
+    },
+    {
+      "seed": 123,
+      "results_path": "/Users/nhathuy/Desktop/HK1_26-27/KLTN/DermaXAI-Explainable-AI-for-Skin-Lesion-Classification/results/f1_macro/m4_sg/mlp128_e20_headlr0.001/seed123.json",
+      "validation_export_sha256_before_test": "838951063e7b0baf2a1e820d6206b77b3b3c24c51a02941410c0ad28c5ab985e",
+      "checkpoint_path": "/Users/nhathuy/Desktop/HK1_26-27/KLTN/DermaXAI-Explainable-AI-for-Skin-Lesion-Classification/checkpoints/f1_macro/m4_hard_sg_cbm_mlp128_headlr0.001_epochs20_seed123_ckptf1macro_best.pth",
+      "checkpoint_sha256": "ca5aac283562571cac46d4cc4c917d07a195d07746cbeaa1a822282cf0f61fb0",
+      "best_epoch": 14,
+      "decision_threshold": 0.5
+    },
+    {
+      "seed": 2026,
+      "results_path": "/Users/nhathuy/Desktop/HK1_26-27/KLTN/DermaXAI-Explainable-AI-for-Skin-Lesion-Classification/results/f1_macro/m4_sg/mlp128_e20_headlr0.001/seed2026.json",
+      "validation_export_sha256_before_test": "e969a48adea52f624cb29571969c45f4ac63cddc354c1fec3ee922bee9254c43",
+      "checkpoint_path": "/Users/nhathuy/Desktop/HK1_26-27/KLTN/DermaXAI-Explainable-AI-for-Skin-Lesion-Classification/checkpoints/f1_macro/m4_hard_sg_cbm_mlp128_headlr0.001_epochs20_seed2026_ckptf1macro_best.pth",
+      "checkpoint_sha256": "da1afb9f48179b6ecc4c87baf3ecc0499b4c38baf0d32afffefb5b4e40546231",
+      "best_epoch": 9,
+      "decision_threshold": 0.4738820493221283
+    }
+  ],
+  "validation_summary_path": "/Users/nhathuy/Desktop/HK1_26-27/KLTN/DermaXAI-Explainable-AI-for-Skin-Lesion-Classification/results/f1_macro/m4_sg/mlp128_e20_headlr0.001/validation_summary.json",
+  "test_status_at_selection": "None of the three selected pilot exports contains test predictions or metrics.",
+  "prior_test_exposure": "Original baseline and earlier BAcc study test results were already observed before this follow-up; this is not a pristine first evaluation of the whole project. Current candidate selection uses validation only.",
+  "comparison_scope": "Two bundled configurations; not an exhaustive hyperparameter search and not an isolated estimate of the effect of head, LR or epoch budget.",
+  "threshold_rule": "maximize_validation_balanced_accuracy_tie_nearest_0.5",
+  "test_policy": "Evaluate all three saved checkpoints at their stored thresholds; do not reselect seeds, epoch or threshold using test results."
+}

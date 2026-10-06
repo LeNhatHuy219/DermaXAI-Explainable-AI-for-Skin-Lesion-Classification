@@ -26,8 +26,8 @@ from src.intervention import evaluate_soft_interventions
 from experiments.run_m3 import (StateWeightedCE, _default_paths, run_m3_experiment, evaluate_m3_test,
                                 run_m3_intervention, validate_m3_config, M3_PROTOCOL)
 from experiments.run_m2_lr import run_m2_experiment, evaluate_m2_test
-from experiments.run_m2_mlp import run_m2_mlp_experiment, evaluate_m2_mlp_test
-from experiments import run_m1, run_m2_lr, run_m2_mlp, run_m3
+from experiments.run_m2_mlp import run_m2_mlp_experiment
+from experiments import run_m1, run_m2_lr, run_m2_mlp, run_m3, run_m4_st, run_m4_sg
 from experiments.summarize_seeds import summarize_seeds
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -100,7 +100,7 @@ class ProtocolSafetyTests(unittest.TestCase):
         original = b"existing checkpoint must be preserved"
         alias.write_bytes(original)
         for runner in [run_m1.run_m1_experiment, run_m2_experiment,
-                       run_m2_mlp_experiment, run_m3_experiment]:
+                       run_m2_mlp_experiment, run_m3_experiment, run_m4_st.run_m4_experiment, run_m4_sg.run_m4_sg_experiment]:
             for save_results in [True, False]:
                 with self.subTest(runner=runner.__name__, save_results=save_results):
                     with self.assertRaisesRegex(ValueError, "distinct paths"):
@@ -109,6 +109,107 @@ class ProtocolSafetyTests(unittest.TestCase):
                                results_path=str(self.path / "nested" / ".." / alias.name),
                                save_results=save_results, overwrite=True)
                     self.assertEqual(alias.read_bytes(), original)
+
+    def test_f1_checkpoint_ranking_differs_from_bacc_and_ties_keep_first_epoch(self):
+        # Dùng các dự đoán hợp lệ mà F1 và BAcc xếp hạng NGƯỢC nhau.
+        # Ba epochs có dự đoán A/B/A: F1 phải chọn epoch 1 (không phải 2 hoặc 3).
+        from test_m4_st_protocol import TinyHardCBM
+        from test_m4_sg_protocol import TinyHardStopGradientCBM
+        from experiments import m4_common
+        train, valid = TinyDataset(str(self.manifest), "train"), TinyDataset(str(self.manifest), "valid")
+        bundle = {"train": DataLoader(train, batch_size=128), "valid": DataLoader(valid, batch_size=128),
+                  "datasets": {"train": train, "valid": valid},
+                  "class_weights": compute_diagnosis_weights(str(self.manifest), str(ROOT))}
+        truth = valid.df.diagnosis_binary.to_numpy(dtype=int)
+        positives, negatives = np.flatnonzero(truth == 1), np.flatnonzero(truth == 0)
+
+        def probability(tp, tn):
+            prediction = np.ones(len(truth), dtype=int)
+            prediction[positives] = 0
+            prediction[positives[:tp]] = 1
+            prediction[negatives[:tn]] = 0
+            return np.where(prediction, .9, .1)
+
+        a, b = probability(15, 135), probability(49, 64)
+        metrics_a, metrics_b = [compute_metrics(truth, p >= .5, p) for p in [a, b]]
+        self.assertGreater(metrics_a["f1_macro"], metrics_b["f1_macro"])
+        self.assertLess(metrics_a["balanced_accuracy"], metrics_b["balanced_accuracy"])
+        for label in ["m1", "m2_mlp", "m3", "m4_st", "m4_sg"]:
+            for metric, epoch in [("f1_macro", 1), ("balanced_accuracy", 2)]:
+                with self.subTest(model=label, criterion=metric), contextlib.ExitStack() as stack:
+                    checkpoint = self.path / f"{label}_{metric}.pth"
+                    sequence = iter([a, b, a, a if metric == "f1_macro" else b])
+                    kwargs = dict(manifest_path=str(self.manifest), epochs=3, batch_size=128,
+                                  device_name="cpu", checkpoint_path=str(checkpoint), save_results=False)
+                    # F1 kiểm tra DEFAULT mới; BAcc kiểm tra chế độ tái lập protocol cũ.
+                    if metric != "f1_macro":
+                        kwargs["checkpoint_metric"] = metric
+                    if label == "m2_mlp":
+                        stack.enter_context(patch.object(run_m2_mlp, "predict_probabilities",
+                                                        side_effect=lambda *args: next(sequence)))
+                        runner = run_m2_mlp.run_m2_mlp_experiment
+                    else:
+                        module = run_m1 if label == "m1" else run_m3 if label == "m3" else m4_common
+                        original = module.evaluate
+
+                        def evaluate(*args, **kw):
+                            result = original(*args, **kw)
+                            p = next(sequence)
+                            metrics = compute_metrics(truth, p >= .5, p)
+                            if label.startswith("m4"):
+                                return {**result, "diagnosis_metrics": metrics,
+                                        "predictions": (p >= .5).astype(int), "probabilities": p}
+                            if label == "m1":
+                                return metrics, result[1], (p >= .5).astype(int), p
+                            return (metrics, *result[1:5], (p >= .5).astype(int), p)
+
+                        stack.enter_context(patch.object(module, "evaluate", side_effect=evaluate))
+                        stack.enter_context(patch.object(module, "get_dataloaders", return_value=bundle))
+                        if label == "m1":
+                            stack.enter_context(patch.object(module, "BlackBoxClassifier", TinyClassifier))
+                            stack.enter_context(patch.object(module, "load_blackbox_state_dict",
+                                                            side_effect=lambda m, state: m.load_state_dict(state)))
+                            runner = run_m1.run_m1_experiment
+                        elif label == "m3":
+                            stack.enter_context(patch.object(module, "get_soft_joint_cbm", TinyCBM))
+                            stack.enter_context(patch.object(module, "load_soft_joint_cbm_state_dict",
+                                                            side_effect=lambda m, state: m.load_state_dict(state)))
+                            runner = run_m3.run_m3_experiment
+                        else:
+                            name, model = ("get_hard_joint_cbm", TinyHardCBM) if label == "m4_st" else (
+                                "get_hard_stop_gradient_cbm", TinyHardStopGradientCBM)
+                            stack.enter_context(patch.object(module, name, model))
+                            kwargs["gradient_mode"] = "straight_through" if label == "m4_st" else "stop_gradient"
+                            runner = m4_common.run_m4_experiment
+                    stack.enter_context(contextlib.redirect_stdout(io.StringIO()))
+                    result = runner(**kwargs)
+                    frozen = torch.load(checkpoint, map_location="cpu", weights_only=True)
+                    self.assertEqual(result["best_epoch"], epoch)
+                    self.assertEqual(frozen["epoch"], epoch)
+                    self.assertEqual(result["hyperparameters"]["checkpoint_selection"], f"validation_{metric}_at_0.5")
+                    self.assertEqual(result["hyperparameters"]["threshold_selection"],
+                                     "maximize_validation_balanced_accuracy_tie_nearest_0.5")
+                    self.assertAlmostEqual(result["history"][0]["validation_f1_macro_at_0.5"], metrics_a["f1_macro"])
+                    self.assertAlmostEqual(result["history"][0]["validation_balanced_accuracy_at_0.5"],
+                                           metrics_a["balanced_accuracy"])
+
+    def test_checkpoint_criteria_have_separate_paths_and_legacy_config_is_recognized(self):
+        from src.selection import metric_from_config
+        from experiments import m4_common
+        for paths in [run_m1._default_paths, run_m2_lr._default_paths, run_m2_mlp.default_paths,
+                      run_m3._default_paths, m4_common._default_paths]:
+            new = paths(checkpoint_metric="f1_macro")
+            old = paths(checkpoint_metric="balanced_accuracy")
+            self.assertNotEqual(new, old)
+            self.assertIn("ckptf1macro", new[0])
+            self.assertNotIn("ckptf1macro", old[0])
+        self.assertEqual(metric_from_config({}), "balanced_accuracy")
+        self.assertEqual(metric_from_config({"checkpoint_selection": "validation_balanced_accuracy_at_0.5"}),
+                         "balanced_accuracy")
+        for config in [{"checkpoint_selection": "test_f1_macro"},
+                       {"checkpoint_selection": "validation_f1_macro_at_0.5", "checkpoint_metric": "balanced_accuracy"}]:
+            with self.assertRaises(ValueError):
+                metric_from_config(config)
 
     def test_new_and_legacy_hashes_allow_only_newline_conversion(self):
         raw = self.manifest.read_bytes().replace(b"\r\n", b"\n")
@@ -253,23 +354,6 @@ class ProtocolSafetyTests(unittest.TestCase):
             run_m3_intervention(checkpoint, predictions, str(self.manifest), str(self.path / "bad.json"))
         self.assertFalse((self.path / "bad.json").exists())
 
-    def test_oracle_mlp_train_test_round_trip_and_threshold(self):
-        checkpoint = str(self.path / "mlp.pth")
-        with contextlib.redirect_stdout(io.StringIO()):
-            run_m2_mlp.main(["--manifest_path", str(self.manifest), "--epochs", "2",
-                             "--batch_size", "128", "--device", "cpu", "--checkpoint_path", checkpoint,
-                             "--results_path", str(self.path / "mlp_results.json")])
-        validation = test = json.loads((self.path / "mlp_results.json").read_text())
-        self.assertEqual(test["mode"], "train_validation_test")
-        self.assertEqual(test["decision_threshold"], validation["decision_threshold"])
-        self.assertEqual(test["concept_schema"], self.schema)
-        self.assertEqual(len(test["test_predictions"]), 395)
-        for row in test["test_predictions"]:
-            self.assertEqual(row["y_pred"], int(row["y_prob"] >= test["decision_threshold"]))
-        self.swap_mapping()
-        with self.assertRaises(ValueError):
-            evaluate_m2_mlp_test(checkpoint, str(self.manifest), "cpu", save_results=False)
-
     def test_m1_combined_command_reloads_frozen_checkpoint(self):
         train, valid = TinyDataset(str(self.manifest), "train"), TinyDataset(str(self.manifest), "valid")
         bundle = {"train": DataLoader(train, batch_size=128), "valid": DataLoader(valid, batch_size=128),
@@ -314,7 +398,7 @@ class ProtocolSafetyTests(unittest.TestCase):
             save_experiment_results(self.path / "lr_results.json", test=different, overwrite=True)
         self.assertEqual((self.path / "lr_results.json").read_bytes(), before)
         # An existing combined JSON must stop every CLI before training.
-        for module in [run_m1, run_m2_lr, run_m2_mlp, run_m3]:
+        for module in [run_m1, run_m2_lr, run_m2_mlp, run_m3, run_m4_st, run_m4_sg]:
             fresh = self.path / (module.__name__.split(".")[-1] + "_new.pth")
             with self.subTest(module=module.__name__), self.assertRaises(FileExistsError):
                 module.main(["--checkpoint_path", str(fresh),

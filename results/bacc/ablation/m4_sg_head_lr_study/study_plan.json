@@ -1,0 +1,21 @@
+{
+  "seeds": [
+    42,
+    123,
+    2026
+  ],
+  "diagnosis_learning_rates": [
+    0.0001,
+    0.0005,
+    0.001
+  ],
+  "epochs": 20,
+  "concept_predictor_learning_rate": 0.0001,
+  "weight_decay": 0.01,
+  "selection": "highest mean validation balanced accuracy at threshold 0.5; tie: smaller head LR",
+  "test_evaluation": "only selected LR and the 20-epoch 1e-4 control, after selection is frozen",
+  "batch_size": 16,
+  "augmentation_preset": "legacy_letterbox",
+  "device_request": "mps",
+  "torch_version": "2.12.0"
+}

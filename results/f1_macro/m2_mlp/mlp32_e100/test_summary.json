@@ -1,0 +1,152 @@
+{
+  "model": "M2_Oracle_MLP",
+  "seeds": [
+    42,
+    123,
+    2026
+  ],
+  "num_seeds": 3,
+  "training_protocol": {
+    "model_type": "OracleMLP",
+    "hidden_dim": 32,
+    "dropout": 0.2,
+    "epochs": 100,
+    "batch_size": 32,
+    "learning_rate": 0.001,
+    "weight_decay": 0.01,
+    "feature_space": "concept_onehot_28d_ground_truth",
+    "class_weights": [
+      0.6393188834190369,
+      2.2944445610046387
+    ],
+    "optimizer": "AdamW",
+    "checkpoint_selection": "validation_f1_macro_at_0.5",
+    "threshold_selection": "maximize_validation_balanced_accuracy_tie_nearest_0.5"
+  },
+  "manifest_fingerprint": {
+    "version": "newline_lf_v1",
+    "raw_sha256": "e21cdc7756f12c3ad6684d27edff0e63f96097ee955c2b0e9c5f25c50e3ac102",
+    "normalized_sha256": "e21cdc7756f12c3ad6684d27edff0e63f96097ee955c2b0e9c5f25c50e3ac102"
+  },
+  "diagnosis_metrics": {
+    "accuracy": {
+      "mean": 0.8556962025316456,
+      "sample_sd": 0.010126582278481011,
+      "values": [
+        0.8455696202531645,
+        0.8556962025316456,
+        0.8658227848101265
+      ]
+    },
+    "balanced_accuracy": {
+      "mean": 0.8608136323836465,
+      "sample_sd": 0.014994467524643996,
+      "values": [
+        0.8637603556273995,
+        0.8445645584966659,
+        0.8741159830268741
+      ]
+    },
+    "f1_macro": {
+      "mean": 0.8264498216452258,
+      "sample_sd": 0.010720635844643042,
+      "values": [
+        0.8187269129783856,
+        0.8219327591524901,
+        0.8386897928048019
+      ]
+    },
+    "f1_melanoma": {
+      "mean": 0.7552993336969734,
+      "sample_sd": 0.015098500953459049,
+      "values": [
+        0.7489711934156379,
+        0.7443946188340808,
+        0.7725321888412017
+      ]
+    },
+    "precision": {
+      "mean": 0.6676637070310587,
+      "sample_sd": 0.02323757109379065,
+      "values": [
+        0.6408450704225352,
+        0.680327868852459,
+        0.6818181818181818
+      ]
+    },
+    "sensitivity": {
+      "mean": 0.8712871287128713,
+      "sample_sd": 0.04315741528258096,
+      "values": [
+        0.900990099009901,
+        0.8217821782178217,
+        0.8910891089108911
+      ]
+    },
+    "specificity": {
+      "mean": 0.8503401360544217,
+      "sample_sd": 0.021241489790470705,
+      "values": [
+        0.826530612244898,
+        0.8673469387755102,
+        0.8571428571428571
+      ]
+    },
+    "roc_auc": {
+      "mean": 0.9246480770526032,
+      "sample_sd": 0.0030051742137457344,
+      "values": [
+        0.9262982420691049,
+        0.9264666262544621,
+        0.9211793628342426
+      ]
+    },
+    "pr_auc": {
+      "mean": 0.7985010751203538,
+      "sample_sd": 0.004879729565176626,
+      "values": [
+        0.7980450238635184,
+        0.8035928208854173,
+        0.7938653806121259
+      ]
+    }
+  },
+  "sd_definition": "sample SD between seeds; not sample CI",
+  "source_paths": [
+    "/Users/nhathuy/Desktop/HK1_26-27/KLTN/DermaXAI-Explainable-AI-for-Skin-Lesion-Classification/results/f1_macro/m2_mlp/mlp32_e100/seed42.json",
+    "/Users/nhathuy/Desktop/HK1_26-27/KLTN/DermaXAI-Explainable-AI-for-Skin-Lesion-Classification/results/f1_macro/m2_mlp/mlp32_e100/seed123.json",
+    "/Users/nhathuy/Desktop/HK1_26-27/KLTN/DermaXAI-Explainable-AI-for-Skin-Lesion-Classification/results/f1_macro/m2_mlp/mlp32_e100/seed2026.json"
+  ],
+  "environments": [
+    {
+      "device": "mps",
+      "num_workers": null,
+      "numpy_version": null,
+      "pandas_version": null,
+      "platform": null,
+      "scikit_learn_version": null,
+      "torch_version": "2.14.0",
+      "torchvision_version": null
+    },
+    {
+      "device": "mps",
+      "num_workers": null,
+      "numpy_version": null,
+      "pandas_version": null,
+      "platform": null,
+      "scikit_learn_version": null,
+      "torch_version": "2.14.0",
+      "torchvision_version": null
+    },
+    {
+      "device": "mps",
+      "num_workers": null,
+      "numpy_version": null,
+      "pandas_version": null,
+      "platform": null,
+      "scikit_learn_version": null,
+      "torch_version": "2.14.0",
+      "torchvision_version": null
+    }
+  ]
+}
