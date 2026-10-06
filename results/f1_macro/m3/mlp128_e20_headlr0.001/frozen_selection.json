@@ -1,0 +1,292 @@
+{
+  "model": "M3_SoftJointCBM",
+  "mode": "frozen_validation_selection",
+  "created_at_utc": "2026-10-04T16:09:37.107652+00:00",
+  "selection_metric": "mean_validation_f1_macro_at_0.5_across_seeds",
+  "checkpoint_selection": "validation_f1_macro_at_0.5_tie_earliest_epoch",
+  "threshold_selection": "maximize_validation_balanced_accuracy_tie_nearest_0.5",
+  "selected_configuration": {
+    "model": "M3_SoftJointCBM",
+    "protocol": "soft_joint_state_weighted_v1",
+    "backbone": "EfficientNet-B0",
+    "pretrained_weights": "EfficientNet_B0_Weights.DEFAULT",
+    "diagnosis_head": "MLP(28, 128, 2)",
+    "concept_heads": "Linear(1280, Ki) per concept",
+    "epochs": 20,
+    "batch_size": 16,
+    "learning_rate": 0.0001,
+    "weight_decay": 0.01,
+    "concept_loss_weight": 1.0,
+    "diagnosis_loss": "Weighted_CrossEntropy",
+    "concept_loss": "Multi-Head_CrossEntropy_balanced_mean",
+    "concept_weighting": "balanced",
+    "concept_state_weights": {
+      "pigment_network": [
+        0.8604166507720947,
+        1.480286717414856,
+        0.8604166507720947
+      ],
+      "streaks": [
+        0.504273533821106,
+        1.3630362749099731,
+        3.529914617538452
+      ],
+      "pigmentation": [
+        0.40810278058052063,
+        1.0325000286102295,
+        2.346590995788574,
+        6.453125,
+        0.0
+      ],
+      "regression_structures": [
+        0.3257097899913788,
+        2.4583332538604736,
+        2.581249952316284,
+        7.375
+      ],
+      "dots_and_globules": [
+        1.6388888359069824,
+        0.7957611083984375,
+        0.882478654384613
+      ],
+      "blue_whitish_veil": [
+        0.6091445684432983,
+        2.7905404567718506
+      ],
+      "vascular_structures": [
+        0.14877521991729736,
+        4.302083492279053,
+        6.453125,
+        2.868055582046509,
+        12.90625,
+        10.324999809265137,
+        2.868055582046509,
+        51.625
+      ]
+    },
+    "concept_train_statistics": {
+      "pigment_network": {
+        "counts": [
+          160,
+          93,
+          160
+        ],
+        "weights": [
+          0.8604166507720947,
+          1.480286717414856,
+          0.8604166507720947
+        ],
+        "observed_states": [
+          0,
+          1,
+          2
+        ]
+      },
+      "streaks": {
+        "counts": [
+          273,
+          101,
+          39
+        ],
+        "weights": [
+          0.504273533821106,
+          1.3630362749099731,
+          3.529914617538452
+        ],
+        "observed_states": [
+          0,
+          1,
+          2
+        ]
+      },
+      "pigmentation": {
+        "counts": [
+          253,
+          100,
+          44,
+          16,
+          0
+        ],
+        "weights": [
+          0.40810278058052063,
+          1.0325000286102295,
+          2.346590995788574,
+          6.453125,
+          0.0
+        ],
+        "observed_states": [
+          0,
+          1,
+          2,
+          3
+        ]
+      },
+      "regression_structures": {
+        "counts": [
+          317,
+          42,
+          40,
+          14
+        ],
+        "weights": [
+          0.3257097899913788,
+          2.4583332538604736,
+          2.581249952316284,
+          7.375
+        ],
+        "observed_states": [
+          0,
+          1,
+          2,
+          3
+        ]
+      },
+      "dots_and_globules": {
+        "counts": [
+          84,
+          173,
+          156
+        ],
+        "weights": [
+          1.6388888359069824,
+          0.7957611083984375,
+          0.882478654384613
+        ],
+        "observed_states": [
+          0,
+          1,
+          2
+        ]
+      },
+      "blue_whitish_veil": {
+        "counts": [
+          339,
+          74
+        ],
+        "weights": [
+          0.6091445684432983,
+          2.7905404567718506
+        ],
+        "observed_states": [
+          0,
+          1
+        ]
+      },
+      "vascular_structures": {
+        "counts": [
+          347,
+          12,
+          8,
+          18,
+          4,
+          5,
+          18,
+          1
+        ],
+        "weights": [
+          0.14877521991729736,
+          4.302083492279053,
+          6.453125,
+          2.868055582046509,
+          12.90625,
+          10.324999809265137,
+          2.868055582046509,
+          51.625
+        ],
+        "observed_states": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7
+        ]
+      }
+    },
+    "dropout": 0.2,
+    "class_weights": [
+      0.6393188834190369,
+      2.2944445610046387
+    ],
+    "augmentation_preset": "legacy_letterbox",
+    "target_size": 224,
+    "scheduler": "CosineAnnealingLR(eta_min=1e-6)",
+    "checkpoint_selection": "validation_f1_macro_at_0.5",
+    "threshold_selection": "maximize_validation_balanced_accuracy_tie_nearest_0.5",
+    "diagnosis_learning_rate": 0.001,
+    "optimizer_parameter_groups": "concept_predictor_and_diagnosis_head",
+    "diagnosis_hidden_dim": 128,
+    "diagnosis_dropout": 0.3,
+    "diagnosis_normalization": "LayerNorm"
+  },
+  "seeds": [
+    42,
+    123,
+    2026
+  ],
+  "candidates": [
+    {
+      "name": "M3 Linear 10 epochs",
+      "validation_f1_macro_at_0.5": {
+        "mean": 0.45663318585579593,
+        "sample_sd": 0.009433601744781193,
+        "values": [
+          0.44574020084224164,
+          0.4620796783625731,
+          0.4620796783625731
+        ]
+      }
+    },
+    {
+      "name": "M3 MLP128 head LR 1e-3 20 epochs",
+      "validation_f1_macro_at_0.5": {
+        "mean": 0.7726617338977125,
+        "sample_sd": 0.02041035813511508,
+        "values": [
+          0.7495016611295682,
+          0.7804614275414563,
+          0.788022113022113
+        ]
+      }
+    }
+  ],
+  "frozen_runs": [
+    {
+      "seed": 42,
+      "best_epoch": 19,
+      "decision_threshold": 0.07213160395622253,
+      "checkpoint_path": "/Users/nhathuy/Desktop/HK1_26-27/KLTN/DermaXAI-Explainable-AI-for-Skin-Lesion-Classification/checkpoints/f1_macro/m3_soft_joint_cbm_mlp128_headlr0.001_epochs20_seed42_ckptf1macro_best.pth",
+      "checkpoint_sha256": "e8f96b0ed0b1a198530ef354727365c63d289aa8ada7dbb2fd7c1d7b750a79ee",
+      "results_path": "/Users/nhathuy/Desktop/HK1_26-27/KLTN/DermaXAI-Explainable-AI-for-Skin-Lesion-Classification/results/f1_macro/m3/mlp128_e20_headlr0.001/seed42.json",
+      "validation_export_sha256_before_test": "cbdfe0c287e4e5d3e61f306aa3f05534081a20b055f932ce6bc728aa31cda89c"
+    },
+    {
+      "seed": 123,
+      "best_epoch": 7,
+      "decision_threshold": 0.2593942880630493,
+      "checkpoint_path": "/Users/nhathuy/Desktop/HK1_26-27/KLTN/DermaXAI-Explainable-AI-for-Skin-Lesion-Classification/checkpoints/f1_macro/m3_soft_joint_cbm_mlp128_headlr0.001_epochs20_seed123_ckptf1macro_best.pth",
+      "checkpoint_sha256": "121eafe3c3081474c1b6f5bcfefab4f3d594c0e2135b696201626497e46e2b86",
+      "results_path": "/Users/nhathuy/Desktop/HK1_26-27/KLTN/DermaXAI-Explainable-AI-for-Skin-Lesion-Classification/results/f1_macro/m3/mlp128_e20_headlr0.001/seed123.json",
+      "validation_export_sha256_before_test": "b1ad2d3e9f884abdc9f6a9ae54113d59a4922b8770e133fe459714c2a408a696"
+    },
+    {
+      "seed": 2026,
+      "best_epoch": 18,
+      "decision_threshold": 0.09086992591619492,
+      "checkpoint_path": "/Users/nhathuy/Desktop/HK1_26-27/KLTN/DermaXAI-Explainable-AI-for-Skin-Lesion-Classification/checkpoints/f1_macro/m3_soft_joint_cbm_mlp128_headlr0.001_epochs20_seed2026_ckptf1macro_best.pth",
+      "checkpoint_sha256": "00caad92c315ef7157978011a77ac02f362517b240c96f7246b412e265fe6d06",
+      "results_path": "/Users/nhathuy/Desktop/HK1_26-27/KLTN/DermaXAI-Explainable-AI-for-Skin-Lesion-Classification/results/f1_macro/m3/mlp128_e20_headlr0.001/seed2026.json",
+      "validation_export_sha256_before_test": "2fa4714db29eded11ef7c494adf3c5a7cc2e5eff571712de36eba37570f8bf61"
+    }
+  ],
+  "test_status_at_selection": "No test predictions or metrics in any of the three selected pilot exports",
+  "decision": "Retain this MLP128 cohort and evaluate all three frozen checkpoints on test; preserve epochs and thresholds",
+  "scope_notes": [
+    "This is a follow-up after earlier baseline and M4 results were already observed; it is not a claim that the project test set has never been consulted.",
+    "Head, head learning rate and epoch budget changed together; this is not an isolated causal ablation or exhaustive hyperparameter search.",
+    "Diagnosis checkpoint and threshold use different validation metrics. Preserve the existing threshold rule for this cohort.",
+    "No changes to selected weights, epochs or thresholds based on future test scores."
+  ]
+}

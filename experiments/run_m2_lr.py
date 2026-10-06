@@ -1,4 +1,12 @@
-"""M2 oracle Logistic Regression: train → validation selection → automatic test."""
+# M2 - Oracle Logistic Regression: ground-truth concepts -> diagnosis, không dùng ảnh.
+# Đầu vào: manifest và schema/label_mapping; bảy GT groups ghép thành one-hot 28 chiều.
+# Fit mỗi C trên train, chọn C bằng validation metric@0.5, sau đó chọn ngưỡng BAcc.
+# Test dùng classifier/C/ngưỡng đã chốt; không đưa diagnosis GT vào vector đầu vào.
+# Đầu ra JSON: results/<metric>/m2_lr/logistic_regression/seed<seed>.json.
+# JSON còn lưu hệ số theo concept state để diễn giải classifier tuyến tính.
+# Đọc build_oracle_features -> _select_best_C -> run_m2_experiment -> evaluate_m2_test.
+# M2 là đối chứng concept sufficiency; kết quả phụ thuộc classifier/regularization.
+
 import argparse
 import hashlib
 import json
@@ -27,11 +35,15 @@ import sklearn
 from sklearn.linear_model import LogisticRegression
 
 from src.metrics import compute_metrics, print_metrics_table
+from src.selection import (DEFAULT_CHECKPOINT_METRIC, selection_name, selection_score,
+                           selection_suffix, metric_from_config, add_selection_argument,
+                           checkpoint_directory, results_run_path)
 from src.protocol import (manifest_fingerprint, load_concept_schema, prepare_training_outputs,
                           save_experiment_results,
                           validate_manifest, validate_concept_schema)
 
 
+# Tính SHA-256 nội dung file để ghép đúng manifest/checkpoint với export.
 def _manifest_hash(manifest_path: str) -> str:
     digest = hashlib.sha256()
     with open(manifest_path, "rb") as handle:
@@ -40,8 +52,8 @@ def _manifest_hash(manifest_path: str) -> str:
     return digest.hexdigest()
 
 
+# Chọn ngưỡng tối đa BAcc trên validation; hòa ưu tiên gần 0.5, giữ ngưỡng cho test.
 def select_validation_threshold(y_true: np.ndarray, y_prob: np.ndarray) -> Tuple[float, float]:
-    """Maximize validation balanced accuracy; break ties toward the fixed 0.5 threshold."""
     y_true = np.asarray(y_true, dtype=int)
     y_prob = np.asarray(y_prob, dtype=float)
     if len(y_true) != len(y_prob) or len(np.unique(y_true)) != 2:
@@ -70,25 +82,30 @@ DEFAULT_SEED = 42
 DEFAULT_C_GRID: List[float] = [0.001, 0.003, 0.01, 0.03, 0.1, 0.3, 1.0, 3.0, 10.0, 30.0, 100.0]
 
 
-def _default_paths(seed: int = DEFAULT_SEED) -> Tuple[str, str]:
+# Tạo checkpoint/JSON paths theo cấu hình, seed và tiêu chí chọn checkpoint.
+def _default_paths(seed: int = DEFAULT_SEED, checkpoint_metric: str = DEFAULT_CHECKPOINT_METRIC) -> Tuple[str, str]:
     stem = "m2_oracle_lr" if seed == DEFAULT_SEED else f"m2_oracle_lr_seed{seed}"
+    stem += selection_suffix(checkpoint_metric)
     return (
-        os.path.join(PROJECT_ROOT, "checkpoints", f"{stem}_best.joblib"),
-        os.path.join(PROJECT_ROOT, "results", f"{stem}_results.json"),
+        str(checkpoint_directory(PROJECT_ROOT, checkpoint_metric) / f"{stem}_best.joblib"),
+        str(results_run_path(PROJECT_ROOT, checkpoint_metric, "m2_lr", "logistic_regression", seed)),
     )
 
 
+# Tạo thư mục cha và từ chối ghi đè file đã có nếu chưa bật overwrite.
 def _prepare_output(path: str, overwrite: bool) -> None:
     if os.path.exists(path) and not overwrite:
         raise FileExistsError(f"Artifact already exists: {path}. Choose another path or pass --overwrite.")
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
 
 
+# Lưu dict kết quả thành JSON; không thực hiện thêm train hoặc chọn model.
 def _save_json(path: str, payload: Dict[str, Any]) -> None:
     with open(path, "w", encoding="utf-8") as handle:
         json.dump(payload, handle, ensure_ascii=False, indent=2)
 
 
+# Đọc cách ánh xạ tên state concept sang chỉ số để dựng one-hot nhất quán.
 def _load_label_mapping(project_root: str) -> Dict[str, Dict[str, int]]:
     mapping_path = os.path.join(project_root, "data", "label_mapping.json")
     assert os.path.exists(mapping_path), f"Thiếu file label_mapping.json tại {mapping_path}"
@@ -96,8 +113,8 @@ def _load_label_mapping(project_root: str) -> Dict[str, Dict[str, int]]:
         return json.load(handle)
 
 
+# Ghép bảy GT concept groups thành one-hot 28 chiều; không đưa diagnosis vào features.
 def build_oracle_features(df: pd.DataFrame, label_mapping: Dict[str, Dict[str, int]]) -> np.ndarray:
-    """Ghép 7 concept Ground Truth thành vector one-hot 28 chiều (giống concept_onehot)."""
     n = len(df)
     features = np.zeros((n, TOTAL_CONCEPT_STATES), dtype=np.float32)
     for row_pos, (_, row) in enumerate(df.iterrows()):
@@ -107,6 +124,7 @@ def build_oracle_features(df: pd.DataFrame, label_mapping: Dict[str, Dict[str, i
     return features
 
 
+# Lấy tên 28 concept states theo đúng thứ tự các cột của vector đầu vào.
 def concept_state_names(label_mapping: Dict[str, Dict[str, int]]) -> List[str]:
     # Tên đầy đủ "concept=state" cho từng cột của vector 28 chiều, phục vụ diễn giải hệ số hồi quy
     names = [""] * TOTAL_CONCEPT_STATES
@@ -116,6 +134,7 @@ def concept_state_names(label_mapping: Dict[str, Dict[str, int]]) -> List[str]:
     return names
 
 
+# Ghép case IDs/GT/probabilities/predictions thành records để lưu và kiểm tra từng ca.
 def _extract_sample_predictions(df: pd.DataFrame, y_pred: np.ndarray, y_prob: np.ndarray) -> List[Dict[str, Any]]:
     records = []
     for (_, row), pred, prob in zip(df.iterrows(), y_pred, y_prob):
@@ -132,6 +151,7 @@ def _extract_sample_predictions(df: pd.DataFrame, y_pred: np.ndarray, y_prob: np
     return records
 
 
+# Fit LR cho từng C trên train; chọn bằng validation metric@0.5, hòa giữ C đầu trong grid.
 def _select_best_C(
     X_train: np.ndarray,
     y_train: np.ndarray,
@@ -139,8 +159,9 @@ def _select_best_C(
     y_valid: np.ndarray,
     c_grid: List[float],
     seed: int,
+    checkpoint_metric: str = DEFAULT_CHECKPOINT_METRIC,
 ) -> Tuple[float, Dict[float, float], LogisticRegression]:
-    """Chọn C tối đa Balanced Accuracy trên validation tại ngưỡng 0.5 (giống lựa chọn checkpoint của M1)."""
+    selection_name(checkpoint_metric)
     scores: Dict[float, float] = {}
     best_c = c_grid[0]
     best_score = -1.0
@@ -152,15 +173,16 @@ def _select_best_C(
         model.fit(X_train, y_train)
         valid_probs = model.predict_proba(X_valid)[:, 1]
         valid_preds = (valid_probs >= 0.5).astype(int)
-        bacc = compute_metrics(y_valid, valid_preds)["balanced_accuracy"]
-        scores[c] = bacc
-        if bacc > best_score + 1e-12:
-            best_score = bacc
+        score = selection_score(compute_metrics(y_valid, valid_preds), checkpoint_metric)
+        scores[c] = score
+        if score > best_score + 1e-12:
+            best_score = score
             best_c = c
             best_model = model
     return best_c, scores, best_model
 
 
+# Chuẩn bị GT features, chọn C/ngưỡng bằng validation, lưu classifier và validation JSON.
 def run_m2_experiment(
     manifest_path: str = None,
     seed: int = DEFAULT_SEED,
@@ -169,8 +191,8 @@ def run_m2_experiment(
     results_path: str = None,
     save_results: bool = True,
     overwrite: bool = False,
+    checkpoint_metric: str = DEFAULT_CHECKPOINT_METRIC,
 ) -> Dict[str, Any]:
-    """Chọn hyperparameter C và ngưỡng quyết định chỉ bằng train/validation."""
     if manifest_path is None:
         manifest_path = os.path.join(PROJECT_ROOT, "data", "manifest.csv")
     manifest_path = os.path.abspath(manifest_path)
@@ -180,7 +202,7 @@ def run_m2_experiment(
         raise ValueError("c_grid must contain finite positive values")
 
     checkpoint_path, results_path = prepare_training_outputs(
-        _default_paths(seed), checkpoint_path, results_path, overwrite, save_results,
+        _default_paths(seed, checkpoint_metric), checkpoint_path, results_path, overwrite, save_results,
     )
 
     _prepare_output(checkpoint_path, overwrite)
@@ -205,8 +227,8 @@ def run_m2_experiment(
     y_valid = valid_df["diagnosis_binary"].to_numpy(dtype=int)
 
     print(f"Grid search C trên validation: {c_grid}")
-    best_c, c_scores, best_model = _select_best_C(X_train, y_train, X_valid, y_valid, c_grid, seed)
-    print(f"C tốt nhất theo Balanced Accuracy (threshold=0.5) trên validation: {best_c} (BAcc={c_scores[best_c] * 100:.2f}%)")
+    best_c, c_scores, best_model = _select_best_C(X_train, y_train, X_valid, y_valid, c_grid, seed, checkpoint_metric)
+    print(f"C tốt nhất theo {checkpoint_metric} (threshold=0.5) trên validation: {best_c} (score={c_scores[best_c]:.4f})")
 
     valid_probs = best_model.predict_proba(X_valid)[:, 1]
     valid_metrics_at_05 = compute_metrics(y_valid, (valid_probs >= 0.5).astype(int), valid_probs)
@@ -226,8 +248,8 @@ def run_m2_experiment(
         "seed": seed,
         "c_grid": c_grid,
         "best_C": best_c,
-        "c_grid_validation_balanced_accuracy": c_scores,
-        "checkpoint_selection": "validation_balanced_accuracy_at_0.5",
+        f"c_grid_validation_{checkpoint_metric}": c_scores,
+        "checkpoint_selection": selection_name(checkpoint_metric),
         "threshold_selection": "maximize_validation_balanced_accuracy_tie_nearest_0.5",
         "scikit_learn_version": str(sklearn.__version__),
         "numpy_version": str(np.__version__),
@@ -286,6 +308,7 @@ def run_m2_experiment(
     return results
 
 
+# Đọc frozen classifier/schema/ngưỡng, tạo GT features test và chấm oracle test.
 def evaluate_m2_test(
     checkpoint_path: str,
     manifest_path: str = None,
@@ -293,7 +316,6 @@ def evaluate_m2_test(
     save_results: bool = True,
     overwrite: bool = False,
 ) -> Dict[str, Any]:
-    """Một lần đánh giá test duy nhất bằng model + ngưỡng đã đóng băng."""
     if manifest_path is None:
         manifest_path = os.path.join(PROJECT_ROOT, "data", "manifest.csv")
     manifest_path = os.path.abspath(manifest_path)
@@ -305,12 +327,13 @@ def evaluate_m2_test(
     schema = validate_concept_schema(checkpoint, manifest_path)
 
     config = checkpoint["config"]
+    metric_from_config(config)
     threshold = float(checkpoint["decision_threshold"])
     if not 0 <= threshold <= 1:
         raise ValueError("Invalid threshold in checkpoint")
 
     if results_path is None:
-        _, results_path = _default_paths(config["seed"])
+        _, results_path = _default_paths(config["seed"], metric_from_config(config))
     if save_results:
         _prepare_output(results_path, overwrite)
 
@@ -349,8 +372,9 @@ def evaluate_m2_test(
     return results
 
 
+# Đọc CLI: mặc định fit/chọn bằng train-valid rồi test; mode test dùng checkpoint có sẵn.
 def main(argv=None):
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser()
     parser.add_argument("--mode", choices=["train", "test"], default="train", help="train: train rồi tự động test; test: đánh giá checkpoint đã lưu")
     parser.add_argument("--seed", type=int, default=DEFAULT_SEED)
     parser.add_argument("--manifest_path", type=str, default=None)
@@ -358,11 +382,12 @@ def main(argv=None):
     parser.add_argument("--results_path", type=str, default=None, help="Một file JSON chứa kết quả validation và test")
     parser.add_argument("--overwrite", action="store_true", help="Cho phép ghi đè artifact của cùng run")
     parser.add_argument("--no_save", action="store_true", help="Không lưu kết quả vào file")
+    add_selection_argument(parser)
     args = parser.parse_args(argv)
 
     if args.mode == "train":
         checkpoint_path, results_path = prepare_training_outputs(
-            _default_paths(args.seed), args.checkpoint_path, args.results_path,
+            _default_paths(args.seed, args.checkpoint_metric), args.checkpoint_path, args.results_path,
             args.overwrite, not args.no_save,
         )
         validation = run_m2_experiment(
@@ -371,6 +396,7 @@ def main(argv=None):
             checkpoint_path=checkpoint_path,
             save_results=False,
             overwrite=args.overwrite,
+            checkpoint_metric=args.checkpoint_metric,
         )
         if not args.no_save:
             save_experiment_results(results_path, validation=validation, overwrite=args.overwrite)
@@ -381,8 +407,11 @@ def main(argv=None):
         if not args.no_save:
             save_experiment_results(results_path, validation=validation, test=test, overwrite=True)
     else:
-        checkpoint_path = args.checkpoint_path or _default_paths(args.seed)[0]
-        results_path = args.results_path or _default_paths(args.seed)[1]
+        checkpoint_path = args.checkpoint_path or _default_paths(args.seed, args.checkpoint_metric)[0]
+        results_path = args.results_path
+        if results_path is None:
+            config = joblib.load(checkpoint_path)["config"]
+            results_path = _default_paths(config["seed"], metric_from_config(config))[1]
         if not args.no_save:
             _prepare_output(results_path, args.overwrite)
         test = evaluate_m2_test(

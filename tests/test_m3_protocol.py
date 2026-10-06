@@ -49,7 +49,7 @@ class M3ProtocolTests(unittest.TestCase):
             self.assertTrue(torch.allclose(concept_vector.sum(dim=-1), torch.full((2,), 7.0), atol=1e-4))
 
     def test_diagnosis_head_is_pure_linear_on_28d_bottleneck(self):
-        # g phải là Linear thuần (không hidden layer) để đối chiếu công bằng với M2 (Logistic Regression)
+        # Giữ head Linear của baseline; MLP128 là cấu hình riêng có metadata riêng.
         model = SoftJointCBM(CONCEPT_NAMES, CONCEPT_NUM_CLASSES, pretrained=False)
         self.assertIsInstance(model.diagnosis_head, nn.Linear)
         self.assertEqual(model.diagnosis_head.in_features, 28)
@@ -105,7 +105,7 @@ class M3ProtocolTests(unittest.TestCase):
     def test_default_paths_are_config_specific(self):
         self.assertNotEqual(_default_paths(42, "legacy_letterbox", 1.0), _default_paths(123, "legacy_letterbox", 1.0))
         self.assertNotEqual(_default_paths(42, "legacy_letterbox", 1.0), _default_paths(42, "comparison", 1.0))
-        self.assertEqual(_default_paths(42, "legacy_letterbox", 1.0), _default_paths(42, "legacy_letterbox", 0.5))
+        self.assertNotEqual(_default_paths(42, "legacy_letterbox", 1.0), _default_paths(42, "legacy_letterbox", 0.5))
 
     def test_threshold_selection_matches_expected_tie_break(self):
         threshold, bacc = select_validation_threshold(

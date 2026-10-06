@@ -1,0 +1,154 @@
+{
+  "audited_runs": [
+    {
+      "variant": "st",
+      "head": "linear",
+      "seed": 42,
+      "best_epoch": 15,
+      "threshold": 0.5688586235046387,
+      "checkpoint_hash_verified": true,
+      "validation_head_predictions_verified": true
+    },
+    {
+      "variant": "st",
+      "head": "linear",
+      "seed": 123,
+      "best_epoch": 14,
+      "threshold": 0.3917171359062195,
+      "checkpoint_hash_verified": true,
+      "validation_head_predictions_verified": true
+    },
+    {
+      "variant": "st",
+      "head": "linear",
+      "seed": 2026,
+      "best_epoch": 7,
+      "threshold": 0.4100431203842163,
+      "checkpoint_hash_verified": true,
+      "validation_head_predictions_verified": true
+    },
+    {
+      "variant": "st",
+      "head": "mlp128",
+      "seed": 42,
+      "best_epoch": 12,
+      "threshold": 0.5233321785926819,
+      "checkpoint_hash_verified": true,
+      "validation_head_predictions_verified": true
+    },
+    {
+      "variant": "st",
+      "head": "mlp128",
+      "seed": 123,
+      "best_epoch": 15,
+      "threshold": 0.4278876483440399,
+      "checkpoint_hash_verified": true,
+      "validation_head_predictions_verified": true
+    },
+    {
+      "variant": "st",
+      "head": "mlp128",
+      "seed": 2026,
+      "best_epoch": 19,
+      "threshold": 0.4339485466480255,
+      "checkpoint_hash_verified": true,
+      "validation_head_predictions_verified": true
+    },
+    {
+      "variant": "sg",
+      "head": "linear",
+      "seed": 42,
+      "best_epoch": 20,
+      "threshold": 0.5632803440093994,
+      "checkpoint_hash_verified": true,
+      "validation_head_predictions_verified": true
+    },
+    {
+      "variant": "sg",
+      "head": "linear",
+      "seed": 123,
+      "best_epoch": 15,
+      "threshold": 0.37557604908943176,
+      "checkpoint_hash_verified": true,
+      "validation_head_predictions_verified": true
+    },
+    {
+      "variant": "sg",
+      "head": "linear",
+      "seed": 2026,
+      "best_epoch": 20,
+      "threshold": 0.3772789239883423,
+      "checkpoint_hash_verified": true,
+      "validation_head_predictions_verified": true
+    },
+    {
+      "variant": "sg",
+      "head": "mlp128",
+      "seed": 42,
+      "best_epoch": 6,
+      "threshold": 0.5690777897834778,
+      "checkpoint_hash_verified": true,
+      "validation_head_predictions_verified": true
+    },
+    {
+      "variant": "sg",
+      "head": "mlp128",
+      "seed": 123,
+      "best_epoch": 14,
+      "threshold": 0.4008620083332062,
+      "checkpoint_hash_verified": true,
+      "validation_head_predictions_verified": true
+    },
+    {
+      "variant": "sg",
+      "head": "mlp128",
+      "seed": 2026,
+      "best_epoch": 20,
+      "threshold": 0.4476185142993927,
+      "checkpoint_hash_verified": true,
+      "validation_head_predictions_verified": true
+    }
+  ],
+  "selected_vs_linear": {
+    "st": {
+      "selected_head": "mlp128",
+      "test_bacc_delta_vs_linear": -0.015631665207337053,
+      "case_bootstrap_95_ci": [
+        -0.04120767944141353,
+        0.00947596035113714
+      ],
+      "resamples": 2000,
+      "rng_seed": 12345,
+      "conditioning": "fixed checkpoints, model seeds and validation thresholds; case uncertainty only",
+      "test_accuracy_delta_vs_linear": 0.0025316455696202667,
+      "test_f1_macro_delta_vs_linear": -0.00578639354724042
+    },
+    "sg": {
+      "selected_head": "mlp128",
+      "test_bacc_delta_vs_linear": -0.0008924361823937493,
+      "case_bootstrap_95_ci": [
+        -0.02765527828293033,
+        0.025463477470195978
+      ],
+      "resamples": 2000,
+      "rng_seed": 12345,
+      "conditioning": "fixed checkpoints, model seeds and validation thresholds; case uncertainty only",
+      "test_accuracy_delta_vs_linear": 0.02447257383966228,
+      "test_f1_macro_delta_vs_linear": 0.015769553872172715
+    }
+  },
+  "previous_vs_selected": {
+    "st": {
+      "test_balanced_accuracy_delta": 0.06311039267192031,
+      "test_macro_f1_delta": 0.0721979468800158,
+      "selected_macro_f1_minus_paper_raw_b0": -0.010738185453500582,
+      "limitation": "descriptive; training budget and runtime differ from old baseline; paper pipeline/seeds also differ"
+    },
+    "sg": {
+      "test_balanced_accuracy_delta": 0.19334433443344334,
+      "test_macro_f1_delta": 0.27702433282816774,
+      "selected_macro_f1_minus_paper_raw_b0": -0.027423568240510288,
+      "limitation": "descriptive; training budget and runtime differ from old baseline; paper pipeline/seeds also differ"
+    }
+  }
+}

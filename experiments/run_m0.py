@@ -1,3 +1,9 @@
+# M0 - Majority baseline: dùng lớp đa số của train làm dự đoán cho mọi ca.
+# Đầu vào: data/manifest.csv; không cần ảnh và không huấn luyện model.
+# Đếm nhãn train, lấy tỉ lệ melanoma làm y_prob, rồi chấm validation/test.
+# Đầu ra: results/m0_majority_results.json; không có checkpoint.
+# Đọc run_majority_baseline(): tách split -> đếm train -> dự đoán -> tính metrics -> lưu JSON.
+
 import json
 import os
 import sys
@@ -12,6 +18,7 @@ if PROJECT_ROOT not in sys.path:
 from src.metrics import compute_metrics, print_metrics_table
 
 
+# Ghép case IDs/GT/probabilities/predictions thành records để lưu và kiểm tra từng ca.
 def _extract_sample_predictions(subset_df: pd.DataFrame, y_pred: np.ndarray, y_prob: np.ndarray) -> list:
     # Trích xuất kết quả dự đoán chi tiết từng mẫu phục vụ phân tích lỗi
     records = []
@@ -29,6 +36,7 @@ def _extract_sample_predictions(subset_df: pd.DataFrame, y_pred: np.ndarray, y_p
     return records
 
 
+# Tách official splits, lấy lớp đa số từ train, chấm valid/test và lưu JSON baseline.
 def run_majority_baseline(manifest_path: str = None, save_results: bool = True):
     # Mô hình cơ sở M0: luôn dự đoán lớp đa số (Non-Melanoma) làm mốc sàn đánh giá
     if manifest_path is None:

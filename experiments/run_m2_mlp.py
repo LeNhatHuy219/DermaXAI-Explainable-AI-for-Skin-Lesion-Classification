@@ -1,4 +1,11 @@
-"""M2 oracle MLP: ground-truth concepts; train → validation selection → automatic test."""
+# M2 - Oracle MLP: phân loại diagnosis từ ground-truth concepts, không dùng ảnh.
+# Đầu vào: GT one-hot 28 chiều tạo từ manifest/schema, cùng nhãn diagnosis train.
+# MLP 28 -> hidden_dim -> 2 có ReLU/dropout; loss diagnosis có trọng số lớp.
+# Chọn best epoch theo validation metric@0.5, chọn ngưỡng BAcc rồi frozen test.
+# Đầu ra JSON: results/<metric>/m2_mlp/<cấu hình>/seed<seed>.json.
+# Mặc định metric F1; balanced_accuracy giữ protocol BAcc và đường dẫn tương ứng.
+# Đọc build_model -> run_m2_mlp_experiment -> evaluate_m2_mlp_test -> main.
+
 import argparse
 import os
 import sys
@@ -14,6 +21,9 @@ import pandas as pd
 import torch
 from torch import nn
 from src.metrics import compute_metrics, print_metrics_table
+from src.selection import (DEFAULT_CHECKPOINT_METRIC, selection_name, selection_score,
+                           selection_suffix, metric_from_config, add_selection_argument,
+                           checkpoint_directory, configuration_name, results_run_path)
 from src.protocol import (load_concept_schema, manifest_fingerprint, prepare_training_outputs,
                           save_experiment_results,
                           validate_manifest, validate_concept_schema)
@@ -22,33 +32,49 @@ from experiments.run_m2_lr import (build_oracle_features, select_validation_thre
                                _extract_sample_predictions, _prepare_output, _save_json)
 
 
-def default_paths(seed=42):
-    stem = f"m2_oracle_mlp_seed{seed}"
-    return tuple(str(Path(PROJECT_ROOT) / folder / filename) for folder, filename in [
-        ("checkpoints", stem + "_best.pth"), ("results", stem + "_results.json")])
+# Tạo checkpoint/JSON riêng cho seed và tiêu chí checkpoint F1/BAcc.
+def default_paths(seed=42, checkpoint_metric=DEFAULT_CHECKPOINT_METRIC,
+                  hidden_dim=32, epochs=100, lr=1e-3, weight_decay=1e-2, dropout=.2):
+    stem = f"m2_oracle_mlp_seed{seed}" + selection_suffix(checkpoint_metric)
+    configuration = configuration_name(f"mlp{hidden_dim}", epochs,
+        lr=lr, default_lr=1e-3, weight_decay=weight_decay)
+    if dropout != .2:
+        configuration += f"_dropout{dropout:g}"
+    return (str(checkpoint_directory(PROJECT_ROOT, checkpoint_metric) / f"{stem}_best.pth"),
+            str(results_run_path(PROJECT_ROOT, checkpoint_metric, "m2_mlp", configuration, seed)))
 
 
+def config_paths(config):
+    return default_paths(config["seed"], metric_from_config(config), config["hidden_dim"],
+        config["epochs"], config["learning_rate"], config["weight_decay"], config["dropout"])
+
+
+# Dựng MLP nhận 28 GT concept features; hidden_dim/dropout đọc từ config đã lưu.
 def build_model(config):
     return nn.Sequential(nn.Linear(28, config["hidden_dim"]), nn.ReLU(),
                          nn.Dropout(config["dropout"]), nn.Linear(config["hidden_dim"], 2))
 
 
+# Đặt eval/no_grad, chạy features qua MLP và trả xác suất melanoma.
 @torch.no_grad()
 def predict_probabilities(model, features, device):
     model.eval()
     return model(torch.as_tensor(features, dtype=torch.float32, device=device)).softmax(-1)[:, 1].cpu().numpy()
 
 
+# Train oracle MLP, chọn best epoch/ngưỡng bằng validation, lưu checkpoint/JSON.
 def run_m2_mlp_experiment(manifest_path=None, seed=42, epochs=100, hidden_dim=32,
                           dropout=0.2, lr=1e-3, weight_decay=1e-2, batch_size=32,
                           device_name="auto", checkpoint_path=None, results_path=None,
-                          save_results=True, overwrite=False):
+                          save_results=True, overwrite=False,
+                          checkpoint_metric=DEFAULT_CHECKPOINT_METRIC):
     if epochs < 1 or hidden_dim < 1 or batch_size < 1 or not 0 <= dropout < 1:
         raise ValueError("Invalid epochs, hidden_dim, batch_size or dropout")
     if not np.isfinite(lr) or lr <= 0 or not np.isfinite(weight_decay) or weight_decay < 0:
         raise ValueError("Invalid learning rate or weight decay")
     checkpoint_path, results_path = prepare_training_outputs(
-        default_paths(seed), checkpoint_path, results_path, overwrite, save_results,
+        default_paths(seed, checkpoint_metric, hidden_dim, epochs, lr, weight_decay, dropout),
+        checkpoint_path, results_path, overwrite, save_results,
     )
     set_seed(seed)
     device = get_device(device_name)
@@ -70,7 +96,7 @@ def run_m2_mlp_experiment(manifest_path=None, seed=42, epochs=100, hidden_dim=32
               "learning_rate": lr, "weight_decay": weight_decay,
               "feature_space": "concept_onehot_28d_ground_truth",
               "class_weights": weights.cpu().tolist(), "optimizer": "AdamW",
-              "checkpoint_selection": "validation_balanced_accuracy_at_0.5",
+              "checkpoint_selection": selection_name(checkpoint_metric),
               "threshold_selection": "maximize_validation_balanced_accuracy_tie_nearest_0.5",
               "torch_version": str(torch.__version__), "device": str(device)}
     _prepare_output(checkpoint_path, overwrite)
@@ -92,11 +118,15 @@ def run_m2_mlp_experiment(manifest_path=None, seed=42, epochs=100, hidden_dim=32
             optimizer.step()
         probs = predict_probabilities(model, x_valid, device)
         metrics = compute_metrics(y_valid, (probs >= 0.5).astype(int), probs)
-        score = metrics["balanced_accuracy"]
-        history.append({"epoch": epoch, "validation_balanced_accuracy_at_0.5": score})
+        # Chọn diagnosis Macro F1 @0.5; ghi BAcc riêng, hòa giữ epoch đầu tiên.
+        score = selection_score(metrics, checkpoint_metric)
+        history.append({"epoch": epoch,
+                        "validation_balanced_accuracy_at_0.5": metrics["balanced_accuracy"],
+                        "validation_f1_macro_at_0.5": metrics["f1_macro"]})
         if score > best_score:
             best_score = score
             torch.save({"model_state_dict": model.state_dict(), "config": config, "epoch": epoch,
+                        "val_metrics": metrics, "selection_score": score,
                         "concept_schema": schema, "manifest_fingerprint": fingerprint,
                         "manifest_sha256": fingerprint["raw_sha256"]}, checkpoint_path)
     checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=True)
@@ -124,6 +154,7 @@ def run_m2_mlp_experiment(manifest_path=None, seed=42, epochs=100, hidden_dim=32
     return results
 
 
+# Dựng đúng MLP/schema từ checkpoint và chấm GT concept features của test.
 def evaluate_m2_mlp_test(checkpoint_path, manifest_path=None, device_name="auto",
                         results_path=None, save_results=True, overwrite=False):
     device = get_device(device_name)
@@ -135,7 +166,8 @@ def evaluate_m2_mlp_test(checkpoint_path, manifest_path=None, device_name="auto"
     if not 0 <= threshold <= 1:
         raise ValueError("Invalid frozen diagnosis threshold")
     config = checkpoint["config"]
-    results_path = results_path or default_paths(config["seed"])[1]
+    metric_from_config(config)
+    results_path = results_path or config_paths(config)[1]
     if save_results:
         _prepare_output(results_path, overwrite)
     df = pd.read_csv(manifest_path, dtype={"is_inconsistent_profile": bool})
@@ -162,8 +194,9 @@ def evaluate_m2_mlp_test(checkpoint_path, manifest_path=None, device_name="auto"
     return results
 
 
+# Đọc CLI: train/validation rồi test, hoặc chỉ frozen test với model đã lưu.
 def main(argv=None):
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser()
     parser.add_argument("--mode", choices=["train", "test"], default="train", help="train: train rồi tự động test; test: đánh giá checkpoint đã lưu")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--epochs", type=int, default=100)
@@ -177,24 +210,30 @@ def main(argv=None):
     parser.add_argument("--checkpoint_path")
     parser.add_argument("--results_path", help="Một file JSON chứa kết quả validation và test")
     parser.add_argument("--overwrite", action="store_true")
+    add_selection_argument(parser)
     args = parser.parse_args(argv)
     common = dict(manifest_path=args.manifest_path, device_name=args.device, overwrite=args.overwrite)
     if args.mode == "train":
         checkpoint_path, results_path = prepare_training_outputs(
-            default_paths(args.seed), args.checkpoint_path, args.results_path,
+            default_paths(args.seed, args.checkpoint_metric, args.hidden_dim, args.epochs,
+                          args.lr, args.weight_decay, args.dropout), args.checkpoint_path, args.results_path,
             args.overwrite,
         )
         validation = run_m2_mlp_experiment(seed=args.seed, epochs=args.epochs, hidden_dim=args.hidden_dim,
                              dropout=args.dropout, batch_size=args.batch_size, lr=args.lr,
                              weight_decay=args.weight_decay, checkpoint_path=checkpoint_path,
-                             save_results=False, **common)
+                             save_results=False, checkpoint_metric=args.checkpoint_metric, **common)
         save_experiment_results(results_path, validation=validation, overwrite=args.overwrite)
         test = evaluate_m2_mlp_test(checkpoint_path, save_results=False, **common)
         save_experiment_results(results_path, validation=validation, test=test, overwrite=True)
     else:
-        results_path = args.results_path or default_paths(args.seed)[1]
+        checkpoint_path = args.checkpoint_path or default_paths(args.seed, args.checkpoint_metric)[0]
+        results_path = args.results_path
+        if results_path is None:
+            config = torch.load(checkpoint_path, map_location="cpu", weights_only=True)["config"]
+            results_path = config_paths(config)[1]
         _prepare_output(results_path, args.overwrite)
-        test = evaluate_m2_mlp_test(args.checkpoint_path or default_paths(args.seed)[0],
+        test = evaluate_m2_mlp_test(checkpoint_path,
                                     save_results=False, **common)
         save_experiment_results(results_path, test=test, overwrite=args.overwrite)
 

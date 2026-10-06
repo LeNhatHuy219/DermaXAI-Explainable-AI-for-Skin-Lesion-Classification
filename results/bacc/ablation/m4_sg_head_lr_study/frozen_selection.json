@@ -1,0 +1,52 @@
+{
+  "criterion": "highest mean validation balanced accuracy at threshold 0.5; tie: smaller head LR",
+  "candidates": [
+    {
+      "diagnosis_learning_rate": 0.0001,
+      "validation_balanced_accuracy_mean": 0.570210882783037,
+      "validation_balanced_accuracy_std": 0.03604992433100266,
+      "seeds": [
+        42,
+        123,
+        2026
+      ],
+      "scores": [
+        0.5608404525513738,
+        0.6100207804202262,
+        0.5397714153775109
+      ]
+    },
+    {
+      "diagnosis_learning_rate": 0.0005,
+      "validation_balanced_accuracy_mean": 0.7141730162395136,
+      "validation_balanced_accuracy_std": 0.02677278592813195,
+      "seeds": [
+        42,
+        123,
+        2026
+      ],
+      "scores": [
+        0.7247171553913646,
+        0.7340683444931886,
+        0.6837335488339875
+      ]
+    },
+    {
+      "diagnosis_learning_rate": 0.001,
+      "validation_balanced_accuracy_mean": 0.7395135842376664,
+      "validation_balanced_accuracy_std": 0.015097324196767226,
+      "seeds": [
+        42,
+        123,
+        2026
+      ],
+      "scores": [
+        0.7270260909720618,
+        0.7562918494574001,
+        0.7352228122835374
+      ]
+    }
+  ],
+  "selected_diagnosis_learning_rate": 0.001,
+  "selection_used_test": false
+}

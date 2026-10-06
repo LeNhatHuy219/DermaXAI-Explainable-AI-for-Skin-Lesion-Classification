@@ -2,7 +2,7 @@
 
 ## Trạng thái triển khai
 
-Repo hiện có code và kết quả **M0–M3**. **M4 Hard Joint CBM** và **M5 categorical ECBM** là kế hoạch nghiên cứu, chưa có code hoặc kết quả thực nghiệm.
+Repo hiện có code và kết quả thực nghiệm **M0–M4**, gồm **M4-ST** và **M4-SG** qua ba seeds. **M5 categorical ECBM** vẫn là kế hoạch nghiên cứu.
 
 | Mô hình | Trạng thái | Runner |
 |---|---|---|
@@ -10,10 +10,23 @@ Repo hiện có code và kết quả **M0–M3**. **M4 Hard Joint CBM** và **M5
 | M1 EfficientNet-B0 | Đã hoàn thành, 3 seeds | `experiments/run_m1.py` |
 | M2 Oracle LR / MLP | Đã hoàn thành; MLP có 3 seeds | `experiments/run_m2_lr.py`, `experiments/run_m2_mlp.py` |
 | M3 Soft Joint CBM | Đã hoàn thành, 3 seeds | `experiments/run_m3.py` |
-| M4 Hard Joint CBM | Dự kiến dùng concept dự đoán one-hot thay cho xác suất mềm | Chưa triển khai |
+| M4-ST Hard Joint CBM | MLP128 đã có frozen test và intervention 3 seeds | `experiments/run_m4_st.py` |
+| M4-SG Hard CBM | MLP128 đã có frozen test và intervention 3 seeds; giữ kết quả study LR cũ riêng | `experiments/run_m4_sg.py` |
 | M5 Categorical ECBM | Dự kiến phân tích các thành phần năng lượng và nhóm concept bất nhất | Chưa triển khai |
 
+`experiments/` có 13 file Python: các runner, intervention và ba module dùng chung (`m4_common.py`, `m4_interventions_common.py`, `summarize_seeds.py`). Mã điều phối hai study BAcc về LR/head đã được bỏ sau khi thí nghiệm hoàn tất; các JSON, báo cáo, biểu đồ và checkpoint cũ vẫn được giữ trong `results/bacc/ablation/` và `checkpoints/bacc/` để đối chiếu.
+
 ECBM đã được dùng làm đối chứng trên Derm7pt trong [Wang et al., MIDL 2026](https://proceedings.mlr.press/v315/wang26a.html). Kế hoạch của dự án là đánh giá sâu hơn categorical ECBM trên official split; phần này chưa có kết quả để kết luận về hiệu quả hoặc tính mới.
+
+## Báo cáo và đề cương
+
+Các tài liệu Word cập nhật ngày **06/10/2026** đã thống nhất bộ đối chứng M0–M4, kết quả test/intervention và kế hoạch M5 cùng hai ablations bỏ `E_global`/`E_class`:
+
+- [Đề cương tổng hợp](docs/de-cuong-tong-hop.docx).
+- [Báo cáo tóm tắt tiến độ và kết quả](docs/bao-cao-tien-do.docx).
+- [Báo cáo tóm tắt đề tài](docs/bao-cao-tom-tat-de-tai.docx).
+
+Số liệu chi tiết nằm trong [danh mục kết quả](results/README.md). [Danh mục checkpoint và SHA-256](checkpoints/README.md) được lưu để đối chiếu; weights giữ ở máy cục bộ.
 
 ## Cài đặt và chạy từ máy khác
 
@@ -31,7 +44,7 @@ Trên Windows, kích hoạt môi trường bằng `.venv\Scripts\Activate.ps1` t
 
 README đi kèm Derm7pt ghi rõ ảnh không được phân phối lại. Thư mục dữ liệu, checkpoint và log cục bộ nằm trong `.gitignore`. Output notebook chứa ảnh mẫu Derm7pt cũng cần được giữ ở máy cục bộ.
 
-Xem kết quả M0–M3 đã lưu ở bảng trong mục 9. Để chạy lại và giữ nguyên các kết quả đã công bố, ghi JSON mới vào `results/local/`:
+Xem [bảng kết quả chính M0–M4, chọn checkpoint theo Macro F1](results/f1_macro/all_models_comparison.md), [intervention ba cohorts MLP128](results/f1_macro/interventions_comparison.md) và [bản chốt baseline](results/f1_macro/all_models_comparison.md#baseline-decisions). Bảng checkpoint BAcc cũ ở mục 9 được giữ để lưu trữ/đối chiếu ablation; không gộp với bảng chính. Để chạy lại và giữ nguyên các kết quả đã công bố, ghi JSON mới vào `results/local/`:
 
 ```bash
 python experiments/run_m2_lr.py --checkpoint_path checkpoints/local/m2_lr_best.joblib --results_path results/local/m2_lr_results.json
@@ -103,12 +116,9 @@ Quá trình suy luận chẩn đoán được chia tách thành các chặng tu�
 |:---|:---|:---|:---|
 | **1. Đầu vào** | Ảnh soi da (Dermoscopy) | Kích thước 224 x 224 x 3 pixel (LetterboxResize) | Dữ liệu hình ảnh bảo toàn hình học tổn thương |
 | **2. Trích xuất** | Mạng Backbone $f$ | Mô hình CNN (EfficientNet-B0) | Trích xuất đặc trưng hình ảnh bậc cao |
-| **3. Nút thắt** | Bottleneck $c$ | 7 nhóm concept (7-Point Checklist) | M3: xác suất soft 28 chiều; M4 dự kiến: one-hot |
+| **3. Nút thắt** | Bottleneck $c$ | 7 nhóm concept (7-Point Checklist) | M3: xác suất soft 28 chiều; M4: one-hot 28 chiều |
 | **4. Suy luận** | Mạng Chẩn đoán $g$ | Bộ phân loại Linear / MLP | Kết quả: 0 (Non-Melanoma) hoặc 1 (Melanoma); Non-Melanoma không đồng nghĩa lành tính |
 | **5. Hiệu chỉnh** | Ground-truth intervention ($c^*$) | Thay group bằng annotation one-hot | Chạy lại diagnosis; kết quả có thể tốt lên hoặc xấu đi |
-
-> **Sơ đồ Kiến trúc Tương tác Chi tiết:**  
-> Xem toàn bộ kiến trúc hệ thống trực quan tại file **[architecture.html](architecture.html)** (có thể mở trực tiếp bằng trình duyệt web, hỗ trợ Dark/Light mode, phóng to thu nhỏ và tra cứu mã nguồn từng thành phần).
 
 ---
 
@@ -145,15 +155,19 @@ Từ quá trình tiền xử lý và chạy bài audit 80 tiêu chí trên toàn
 python3 experiments/run_m1.py --seed 42
 ```
 
-Mặc định (hoặc `--mode train`), M1, M2 LR, M2 MLP và M3 chạy toàn bộ quy trình bằng một lệnh. Bước huấn luyện chỉ dùng train/validation; checkpoint được chọn theo validation Balanced Accuracy tại ngưỡng 0.5, rồi ngưỡng quyết định được chọn trên validation của checkpoint đó bằng cách tối đa Balanced Accuracy. Sau đó chương trình nạp lại checkpoint và ngưỡng đã đóng băng để đánh giá test; test không tham gia lựa chọn mô hình hoặc ngưỡng.
+Mặc định (hoặc `--mode train`), M1, M2 LR, M2 MLP và M3 chạy toàn bộ quy trình bằng một lệnh. Bước huấn luyện chỉ dùng train/validation; checkpoint được chọn theo **diagnosis validation Macro F1 tại ngưỡng 0.5**. Nếu F1 hòa, giữ epoch đầu tiên. Ngưỡng quyết định được chọn riêng trên validation của checkpoint đó bằng cách tối đa Balanced Accuracy, hòa ưu tiên gần 0.5. Sau đó chương trình nạp lại checkpoint và ngưỡng đã đóng băng để đánh giá test; test không tham gia lựa chọn mô hình hoặc ngưỡng. M4-ST/SG dùng cùng tiêu chí mặc định này.
 
-Checkpoint lưu trong `checkpoints/`; mỗi model/seed có **một JSON** trong `results/`, hậu tố `_results.json`, chứa `validation_metrics`, `validation_predictions`, `test_metrics`, `test_predictions`, cấu hình và thông tin huấn luyện. Ví dụ: `m1_efficientnet_b0_seed42_results.json`, `m2_oracle_lr_results.json`, `m2_oracle_mlp_seed42_results.json`. `--results_path` tùy chỉnh file JSON này; đường dẫn phải khác checkpoint. Chương trình kiểm tra file đã tồn tại trước khi train; dùng `--overwrite` nếu muốn chạy lại. File được lưu sau bước validation, rồi cập nhật thêm test khi hoàn tất. `--mode test --overwrite` cập nhật phần test và giữ phần validation của cùng run đã lưu. `--no_save` (M1, M2 LR, M3) bỏ lưu JSON nhưng vẫn lưu checkpoint.
+Checkpoint lưu theo tiêu chí trong `checkpoints/f1_macro/` hoặc `checkpoints/bacc/`; mỗi model/cấu hình/seed có **một JSON** tại `results/<metric>/<model>/<cấu hình>/seed<seed>.json`, chứa `validation_metrics`, `validation_predictions`, `test_metrics`, `test_predictions`, cấu hình và thông tin huấn luyện. Ví dụ `results/f1_macro/m1/efficientnet_b0_e10/seed42.json` và `results/f1_macro/m2_lr/logistic_regression/seed42.json`. Checkpoint F1 giữ hậu tố **`_ckptf1macro`**; JSON không lặp tiêu chí trong tên file. Metadata ghi `checkpoint_selection=validation_f1_macro_at_0.5`; history lưu riêng cả `validation_f1_macro_at_0.5` và `validation_balanced_accuracy_at_0.5`. `--results_path` tùy chỉnh file JSON này; đường dẫn phải khác checkpoint. Chương trình kiểm tra file đã tồn tại trước khi train; dùng `--overwrite` nếu muốn chạy lại. File được lưu sau bước validation, rồi cập nhật thêm test khi hoàn tất. `--mode test --overwrite` cập nhật phần test và giữ phần validation của cùng run đã lưu. `--no_save` (M1, M2 LR, M3) bỏ lưu JSON nhưng vẫn lưu checkpoint.
+
+`--checkpoint_metric f1_macro` là mặc định mới cho M1, M2 LR/MLP, M3 và M4-ST/SG. Dùng `--checkpoint_metric balanced_accuracy` để tái lập protocol cũ và tìm các filenames cũ. Test/intervention đọc tiêu chí từ checkpoint đã đóng băng; không lựa chọn lại epoch trên test. Summarizers từ chối gộp runs có tiêu chí checkpoint khác nhau. Các bảng kết quả và hai studies tuning dưới đây là **kết quả BAcc đã chạy trước khi đổi protocol**; giữ nguyên provenance, không đổi nhãn thành F1. Mã điều phối study đã được bỏ; kết quả và weights BAcc vẫn lưu để đối chiếu. Chạy các runners train với default mới để tạo kết quả F1; chỉ sửa metadata hoặc chạy lại `--mode test` không khôi phục được weights của epoch F1 nếu epoch đó chưa được lưu.
+
+34 checkpoint BAcc đã được gom vào **`checkpoints/bacc/`** (khoảng 1,37 GiB): `baseline/` chứa 16 bản chính, `m4_head_comparison/` chứa 9 bản thử head, và `m4_sg_head_lr_study/` chứa 9 bản thử LR head. Xem [danh sách checkpoint](checkpoints/README.md) và [manifest SHA-256](checkpoints/bacc/manifest.json). 59 JSON BAcc hiện nằm trong `results/bacc/`, gồm baseline, summaries, intervention và `ablation/`; bộ F1 hiện có 25 run JSONs đã có test, 8 summaries test, 3 summaries validation, 3 quyết định chốt và 12 JSON intervention M3/M4-ST/M4-SG MLP128 (51 JSON kết quả) trong `results/f1_macro/` ([tổ chức kết quả](results/README.md#f1-macro)). Xem [cách tổ chức kết quả](results/README.md). Các trường `checkpoint_path`, `predictions_path` và `source_paths` đã được cập nhật; metrics/predictions giữ nguyên. Khi truyền `--checkpoint_metric balanced_accuracy`, các runners tự tìm checkpoint chính trong `checkpoints/bacc/baseline/`. Weights của hai study BAcc vẫn nằm trong thư mục tương ứng, cùng plan và kết quả đã hoàn tất. 25 checkpoint F1 lưu trong **`checkpoints/f1_macro/`** với hậu tố `_ckptf1macro`; xem [tổ chức checkpoint](checkpoints/README.md), [danh mục F1 và hashes](checkpoints/f1_macro/manifest.json). Thư mục checkpoint tiếp tục được bỏ qua bởi Git.
 
 ---
 
 ## 7. Chạy M2 - Oracle Concept Model
 
-**Mục đích:** Đánh giá concept sufficiency bằng classifier nhận bảy concept ground-truth, không dùng ảnh. LR (`class_weight="balanced"`) là baseline tuyến tính; oracle MLP nhỏ được báo cáo riêng để khảo sát tương tác phi tuyến. Kết quả phụ thuộc classifier, regularization và khả năng tổng quát hóa, không phải cận trên tuyệt đối. LR chọn C theo validation Balanced Accuracy@0.5, rồi chọn threshold bằng validation của model đã chọn.
+**Mục đích:** Đánh giá concept sufficiency bằng classifier nhận bảy concept ground-truth, không dùng ảnh. LR (`class_weight="balanced"`) là baseline tuyến tính; oracle MLP nhỏ được báo cáo riêng để khảo sát tương tác phi tuyến. Kết quả phụ thuộc classifier, regularization và khả năng tổng quát hóa, không phải cận trên tuyệt đối. LR chọn C theo validation Macro F1@0.5, hòa giữ C đầu tiên trong grid, rồi chọn threshold BAcc bằng validation của model đã chọn.
 
 ```bash
 # Grid-search C → chọn ngưỡng bằng validation → tự động test
@@ -190,7 +204,7 @@ Gradient của $L_{\text{diagnosis}}$ truyền ngược xuyên qua vector concep
 python3 experiments/run_m3.py --seed 42
 ```
 
-Cũng như M1, bước huấn luyện chỉ dùng train/validation; checkpoint chọn theo validation Balanced Accuracy chẩn đoán tại ngưỡng 0.5, ngưỡng cuối cùng chọn trên validation của checkpoint đó, sau đó tự động đánh giá test. Kết quả lưu thêm `validation_concept_metrics`/`test_concept_metrics` (Macro-F1 từng concept, cả "all-defined" và "train-observed") để phân tích riêng độ chính xác của tầng bottleneck $f: x \to c$, tách biệt khỏi độ chính xác chẩn đoán cuối $g: c \to y$.
+Cũng như M1, bước huấn luyện chỉ dùng train/validation; checkpoint chọn theo diagnosis validation Macro F1 tại ngưỡng 0.5, ngưỡng cuối cùng chọn theo BAcc trên validation của checkpoint đó, sau đó tự động đánh giá test. Kết quả lưu thêm `validation_concept_metrics`/`test_concept_metrics` (Macro-F1 từng concept, cả "all-defined" và "train-observed") để phân tích riêng độ chính xác của tầng bottleneck $f: x \to c$, tách biệt khỏi độ chính xác chẩn đoán cuối $g: c \to y$.
 
 Có thể chỉnh trọng số $\lambda$ giữa concept loss và diagnosis loss bằng `--concept_loss_weight` (mặc định `1.0`).
 
@@ -198,7 +212,7 @@ M3 được chốt là **một Soft Joint CBM với concept-state weighted CE**.
 
 Export mới lưu GT/prediction/probabilities của từng concept theo case ID, exact-match, per-state F1/support và confusion matrix. Checkpoint M2/M3 lưu concept schema gồm mapping, order, cardinalities, offsets và hash; mapping phải nằm cạnh manifest. Hash manifest chuẩn hóa LF/CRLF nhưng vẫn kiểm tra thay đổi nội dung. M2/M3 được train lại bằng pipeline mới để tạo đầy đủ metadata. M3 test/intervention yêu cầu checkpoint đúng formulation đã chốt.
 
-### Cấu hình và lệnh train M3 đã chốt
+### Cấu hình M3 Linear đã chạy
 
 Giữ cùng cấu hình cho cả ba seeds:
 
@@ -220,17 +234,62 @@ for m3_seed in 42 123 2026; do
 done
 ```
 
-Các lệnh dùng defaults trong bảng và chạy từ thư mục repo, trong môi trường đã cài dependencies. Device tự chọn CUDA, MPS hoặc CPU; có thể chỉ định `--device`. Tên artifact mặc định gồm model và seed, ví dụ `m3_soft_joint_cbm_seed42_best.pth`. Chạy mới tạo artifact riêng cho mỗi seed.
+Các lệnh dùng defaults trong bảng và chạy từ thư mục repo, trong môi trường đã cài dependencies. Device tự chọn CUDA, MPS hoặc CPU; có thể chỉ định `--device`. Tên artifact mặc định gồm model, seed và tiêu chí checkpoint, ví dụ `m3_soft_joint_cbm_seed42_ckptf1macro_best.pth`. Chạy mới tạo artifact riêng cho mỗi seed.
+
+### Pilot M3 MLP128, LR head riêng, 20 epochs
+
+Runner hỗ trợ `--diagnosis_head linear|mlp128`, `--diagnosis_lr` và `--skip_test`. MLP nhận vector soft 28 chiều qua `Linear(28,128) → LayerNorm → ReLU → Dropout(0.3) → Linear(128,2)`, cùng kiến trúc head như M4. M3 vẫn joint: diagnosis loss truyền gradient qua softmax về concept heads/backbone. Không truyền `--diagnosis_lr` thì toàn model dùng `--lr`; truyền LR riêng tách hai nhóm AdamW và history lưu LR từng nhóm trước mỗi epoch.
+
+Cấu hình pilot: backbone/concept LR `1e-4`, diagnosis LR `1e-3`, weight decay `1e-2`, lambda `1.0`, batch `16`, augmentation `legacy_letterbox`, tối đa `20` epochs. Cấu hình này tạo cohort riêng để khảo sát baseline; train/validation cả ba seeds trước khi chốt để test:
+
+```bash
+for m3_seed in 42 123 2026; do
+  python3 experiments/run_m3.py \
+    --seed "$m3_seed" \
+    --diagnosis_head mlp128 \
+    --epochs 20 \
+    --lr 0.0001 \
+    --diagnosis_lr 0.001 \
+    --weight_decay 0.01 \
+    --checkpoint_metric f1_macro \
+    --num_workers 0 \
+    --skip_test || break
+done
+```
+
+`--skip_test` chỉ hợp lệ với mode train; `--no_save` chỉ tắt JSON, checkpoint vẫn lưu. Cấu hình mới có đường dẫn riêng, ví dụ `checkpoints/f1_macro/m3_soft_joint_cbm_mlp128_headlr0.001_epochs20_seed42_ckptf1macro_best.pth` và `results/f1_macro/m3/mlp128_e20_headlr0.001/seed42.json`. Thay epoch, LR backbone, weight decay hoặc lambda cũng tạo tên riêng. Các checkpoint Linear F1 mặc định được nạp từ `checkpoints/f1_macro/`; kiến trúc và tên file giữ nguyên.
+
+Pilot và frozen test đã hoàn tất seeds 42/123/2026: mean validation F1@0.5 **0.7727 ± 0.0204**; mean test F1 **0.7207 ± 0.0110**, BAcc **75.94% ± 2.07 điểm %**, AUC **0.8490 ± 0.0173**, concept F1 **0.4839 ± 0.0122**. Checkpoints epochs **19/7/18**, thresholds **0.072132/0.259394/0.090870**, weights và validation được giữ nguyên từ quyết định trước test. Xem [báo cáo train/validation/test](results/f1_macro/all_models_comparison.md#m3-report) và [báo cáo pilot validation](results/f1_macro/all_models_comparison.md#m3-validation).
+
+Chọn cấu hình bằng mean validation diagnosis Macro F1@0.5 qua cả ba seeds, chốt checkpoint/thresholds trước khi đọc test. Ngưỡng vẫn tối ưu validation BAcc theo protocol hiện tại. Lệnh frozen test đã dùng cho cohort này (đã có kết quả; chỉ chạy lại khi cần tái tạo):
+
+```bash
+for m3_seed in 42 123 2026; do
+  python3 experiments/run_m3.py --mode test --seed "$m3_seed" \
+    --diagnosis_head mlp128 --diagnosis_lr 0.001 --epochs 20 --overwrite || break
+done
+```
+
+Test/intervention tự dựng kiến trúc head và xác định JSON theo config checkpoint; `--checkpoint_path` tùy chỉnh không cần khai báo lại head. Test giữ validation/history và không đổi weights, best epoch hoặc threshold. Sau khi có test exports, intervention ba seeds của cohort mới dùng:
+
+```bash
+python3 experiments/run_m3_interventions.py \
+  --diagnosis_head mlp128 --diagnosis_lr 0.001 --epochs 20
+```
+
+Thư mục mặc định là `results/f1_macro/m3/mlp128_e20_headlr0.001/intervention`, riêng với intervention Linear. Các tests nâng cấp dùng backbone nhỏ trong thư mục tạm để kiểm tra joint gradients, LR groups, pilot không đọc test, frozen MLP test và đủ 128 intervention subsets; đây không phải kết quả train Derm7pt.
+
+Intervention của M3 MLP128 mới đã hoàn tất **128 subsets × 395 ca × ba seeds**. Sửa đủ bảy groups bằng annotation one-hot làm mean Macro F1 **0.7207 ± 0.0110 → 0.6677 ± 0.1296**, BAcc **75.94% ± 2.07 → 74.53% ± 9.76 điểm %**. Seed 123 giảm mạnh, seed 2026 tăng; lợi ích correction chưa ổn định. Baseline và tất cả 384 subsets đã được tái hiện từ frozen heads; weights, epochs, thresholds và test exports giữ nguyên. Xem [báo cáo intervention](results/f1_macro/interventions_comparison.md#m3-details) và [phân tích kết quả](results/f1_macro/interventions_comparison.md#m3-analysis). Kết quả có hỗ trợ GT concepts được báo cáo riêng với test tự động.
 
 ### Intervention M3
 
 Chạy đủ ba seeds và xuất bảng/biểu đồ bằng một lệnh, dùng checkpoint và test predictions hiện có:
 
 ```bash
-python3 experiments/run_m3_interventions.py
+python3 experiments/run_m3_interventions.py --checkpoint_metric balanced_accuracy
 ```
 
-Kết quả nằm trong [`results/m3_intervention/report.md`](results/m3_intervention/report.md): JSON chi tiết của mỗi seed, `summary.json`, `curve.csv`, `per_concept.csv`, `full_intervention_cases.csv`, biểu đồ PNG và SVG. Lệnh không train lại. Mặc định từ chối ghi đè; dùng `--output_dir` để tạo bộ kết quả riêng hoặc `--overwrite` để cập nhật bộ đã có. Chạy trong môi trường có dependencies của dự án.
+Kết quả nằm trong [M3 BAcc cũ — intervention lưu trữ](results/f1_macro/interventions_comparison.md#bacc-m3): JSON chi tiết của mỗi seed, `summary.json`, `curve.csv`, `per_concept.csv`, `full_intervention_cases.csv`, biểu đồ PNG và SVG. Lệnh không train lại. Mặc định từ chối ghi đè; dùng `--output_dir` để tạo bộ kết quả riêng hoặc `--overwrite` để cập nhật bộ đã có. Chạy trong môi trường có dependencies của dự án.
 
 Đã hoàn thành 128 subsets × 395 ca × ba seeds 42/123/2026. Baseline m=0 được tái hiện từ frozen head và khớp test export. Balanced Accuracy trung bình giảm từ **70.30% ± 4.58 điểm %** ở m=0 xuống **53.19% ± 2.83 điểm %** khi sửa đủ bảy groups; Macro-F1 giảm từ **0.6844 ± 0.0326** xuống **0.5262 ± 0.0243**. Đây là kết quả mô tả trên checkpoints hiện tại, chưa phải kết luận về nguyên nhân. Soft probabilities → GT one-hot thay đổi representation đầu vào của diagnosis head; ảnh hưởng của thay đổi này cần được khảo sát riêng. Kết quả chưa chứng minh concept leakage, inconsistency là nguyên nhân hoặc ECBM tốt hơn. M2 oracle được huấn luyện riêng nên không đồng nhất với M3 sau full intervention.
 
@@ -246,9 +305,197 @@ Train, test và intervention dùng chung `run_m3.py`. Intervention tự tìm che
 
 ---
 
-## 9. So sánh Kết quả M0 - M3 trên Test Set (395 mẫu)
+## 8b. Chạy M4-ST — Hard Joint CBM
 
-Kết quả hiện tại lấy từ các JSON trong `results/`. M1, M2 MLP và M3 dùng ba seeds 42, 123, 2026, báo cáo mean ± sample SD. M0 là baseline xác định; M2 LR dùng một seed với solver lbfgs. SD của Balanced Accuracy có đơn vị điểm phần trăm. Hai exports M3 unweighted cũ đã được xoá sau khi hoàn thành bộ M3 weighted.
+M4-ST giữ backbone, bảy concept heads và weighted loss như M3. Cấu hình baseline dùng diagnosis head Linear 28→2, ngân sách 10 epochs; preset mới hỗ trợ MLP128 và LR riêng cho diagnosis head. Diagnosis head nhận predicted one-hot ngay trong train. Backward dùng gradient xấp xỉ qua softmax ở temperature 1.0, không thêm nhiễu Gumbel; validation/test dùng deterministic argmax. M4 khởi tạo mới từ ImageNet, không dùng checkpoint M3 để warm-start. Runner ST là `run_m4_st.py`.
+
+**Pilot MLP128, ba seeds:** cùng head/LR/ngân sách với cohort M3 và M4-SG mới: `Linear(28,128) → LayerNorm → ReLU → Dropout(0.3) → Linear(128,2)`, backbone/concept LR `1e-4`, head LR `1e-3`, weight decay `0.01`, batch 16, lambda 1.0, `legacy_letterbox`, 20 epochs, checkpoint theo validation Macro F1@0.5. Diagnosis gradient vẫn đi qua straight-through về concept/backbone. Chạy từ gốc repo:
+
+```bash
+for seed in 42 123 2026; do
+  python3 -B -u experiments/run_m4_st.py \
+    --seed "$seed" \
+    --diagnosis_head mlp128 \
+    --diagnosis_lr 0.001 \
+    --epochs 20 \
+    --lr 0.0001 \
+    --weight_decay 0.01 \
+    --batch_size 16 \
+    --concept_loss_weight 1.0 \
+    --augmentation_preset legacy_letterbox \
+    --checkpoint_metric f1_macro \
+    --device mps \
+    --num_workers 0 \
+    --skip_test || break
+done
+```
+
+Vòng lặp gọi trực tiếp runner ST cho ba seeds, chỉ train/validation. Launcher pilot riêng đã được bỏ để tránh duy trì cấu hình trùng. Các artifacts dùng stem `m4_hard_joint_cbm_mlp128_headlr0.001_epochs20_seed{seed}_ckptf1macro`, riêng với Linear và các studies BAcc cũ. Runner từ chối ghi đè artifacts đã có; muốn chạy lại, dùng đường dẫn checkpoint/kết quả riêng.
+
+Pilot mới đã hoàn tất ba seeds trên MPS: mean validation F1@0.5 **0.7775 ± 0.0190**, F1 tại ngưỡng BAcc **0.7865 ± 0.0309**, concept F1 **0.5033 ± 0.0078**. Best epochs **18/15/19**, thresholds **0.323596/0.427888/0.433949** đã đóng băng. Test và intervention cohort này đã hoàn tất, giữ nguyên weights/ngưỡng: mean test F1 **0.7131 ± 0.0071**; full GT-assisted intervention F1 **0.7862 ± 0.0279** được báo cáo riêng. [Báo cáo test](results/f1_macro/all_models_comparison.md#m4-st-report) · [So sánh intervention](results/f1_macro/interventions_comparison.md). Train diagnosis loss cuối lịch khoảng 0.213, validation khoảng 0.584; có dấu hiệu overfitting nên giữ best checkpoints và không tăng epoch. [Báo cáo validation, learning curves và provenance](results/f1_macro/all_models_comparison.md#m4-st-validation). Runtime ST mới dùng PyTorch 2.12, M3/SG trước ghi 2.14; phép so sánh cần giữ giới hạn này.
+
+Sau khi chốt từ validation, test tự nạp kiến trúc từ checkpoint:
+
+```bash
+for m4_seed in 42 123 2026; do
+  python3 experiments/run_m4_st.py --mode test --seed "$m4_seed" \
+    --diagnosis_head mlp128 --diagnosis_lr 0.001 --epochs 20 --overwrite || break
+done
+
+python3 experiments/run_m4_st_interventions.py \
+  --diagnosis_head mlp128 --diagnosis_lr 0.001 --epochs 20
+```
+
+Intervention preset mới ghi vào `results/f1_macro/m4_st/mlp128_e20_headlr0.001/intervention`. Head được kiểm tra tái hiện scores test trong sai số `atol=1e-6, rtol=1e-5`. Với ca có vector đầu vào diagnosis không đổi, evaluator giữ score test đã lưu để sai số làm tròn do batch size/device không gây đổi nhãn sát ngưỡng; policy và sai số replay được ghi trong JSON. Các ca thực sự đổi vector được chạy lại qua frozen head ở CPU, với ngưỡng đã chốt.
+
+**Pilot seed 42:** chạy train/validation, chưa đọc test. Lưu trong thư mục local để phân biệt pilot với kết quả chính thức:
+
+```bash
+python3 experiments/run_m4_st.py --seed 42 --skip_test --num_workers 0 \
+  --checkpoint_path checkpoints/local/m4_pilot_seed42_best.pth \
+  --results_path results/local/m4_pilot_seed42_results.json
+```
+
+`--skip_test` chỉ dùng với mode train. `--no_save` chỉ tắt lưu JSON; lệnh vẫn chạy test nếu không có `--skip_test`, và checkpoint vẫn được tạo.
+
+**Ba seeds chính thức sau khi chốt cấu hình:** mỗi lệnh mặc định chạy train → chọn checkpoint/ngưỡng trên validation → test, giống M1–M3.
+
+```bash
+for m4_seed in 42 123 2026; do
+  python3 experiments/run_m4_st.py --seed "$m4_seed" --num_workers 0 || break
+done
+
+python3 experiments/summarize_seeds.py \
+  --results results/f1_macro/m4_st/linear_e10/seed42.json \
+            results/f1_macro/m4_st/linear_e10/seed123.json \
+            results/f1_macro/m4_st/linear_e10/seed2026.json \
+  --output_path results/f1_macro/m4_st/linear_e10/test_summary.json
+
+python3 experiments/run_m4_st_interventions.py
+```
+
+Default artifacts dùng checkpoint `m4_hard_joint_cbm_seed{seed}_ckptf1macro_best.pth` và JSON `results/f1_macro/m4_st/linear_e10/seed{seed}.json`. Các cấu hình khác augmentation/lambda có tên riêng. Lệnh từ chối ghi đè file đã có; dùng đường dẫn mới hoặc `--overwrite` khi chủ động chạy lại. Nếu một seed thất bại, hoàn tất seed đó và các seeds còn thiếu trước khi tổng hợp.
+
+M4 giữ mode test cho checkpoint có sẵn. Ví dụ hoàn tất test của pilot khi cấu hình pilot đã được chốt làm cấu hình chính thức:
+
+```bash
+python3 experiments/run_m4_st.py --mode test --num_workers 0 \
+  --checkpoint_path checkpoints/local/m4_pilot_seed42_best.pth \
+  --results_path results/local/m4_pilot_seed42_results.json --overwrite
+```
+
+Validation vẫn được giữ khi bổ sung test vào cùng JSON. Khi tái sử dụng checkpoint pilot hoặc dùng đường dẫn riêng, truyền đủ checkpoint/test export của từng seed cho batch intervention:
+
+```bash
+python3 experiments/run_m4_st_interventions.py \
+  --checkpoints checkpoints/local/m4_pilot_seed42_best.pth \
+                checkpoints/f1_macro/m4_hard_joint_cbm_seed123_ckptf1macro_best.pth \
+                checkpoints/f1_macro/m4_hard_joint_cbm_seed2026_ckptf1macro_best.pth \
+  --predictions results/local/m4_pilot_seed42_results.json \
+                results/f1_macro/m4_st/linear_e10/seed123.json \
+                results/f1_macro/m4_st/linear_e10/seed2026.json \
+  --output_dir results/local/m4_intervention
+```
+
+Trong trường hợp này, thay đường dẫn seed 42 tương ứng trong lệnh tổng hợp diagnosis. Mọi run phải cùng cấu hình huấn luyện, schema và official cases; không gộp pilot có cấu hình khác vào bộ chính thức.
+
+Export M4 lưu soft probabilities để kiểm tra concept và `hard_concept_vector` là đầu vào thực tế của diagnosis head. Summarizer kiểm tra hard vectors/argmax/annotation và tính lại concept metrics ngoài diagnosis metrics. Evaluator từ chối checkpoint M3 hoặc sai hard/ST protocol. Intervention bắt đầu từ hard predictions, duyệt 128 subsets với head/ngưỡng đóng băng, xác nhận baseline khớp paired test export. Xuất JSON, CSV, PNG/SVG và report M4 riêng tại `results/f1_macro/m4_st/linear_e10/intervention/` cho runs F1 mới; báo cáo BAcc cũ nằm tại `results/bacc/m4_st/linear_e10/intervention`.
+
+Các smoke tests dùng mạng nhỏ trong thư mục tạm để kiểm tra pipeline, không phải kết quả nghiên cứu Derm7pt. Kết quả M4-ST ba seeds đã lưu ở `results/bacc/m4_st/linear_e10/test_summary.json`, đánh giá tại `results/f1_macro/all_models_comparison.md#legacy-bacc`.
+
+## 8c. Chạy M4-SG — Hard CBM với Stop-Gradient
+
+M3, M4-ST và M4-SG được định nghĩa chung trong `src/cbm.py`; hai biến thể M4 có runners riêng:
+
+| Biến thể | Model | Train / test / intervention | Tổng hợp intervention |
+|---|---|---|---|
+| M4-ST | `src/cbm.py` (`HardJointCBM`) | `experiments/run_m4_st.py` | `experiments/run_m4_st_interventions.py` |
+| M4-SG | `src/cbm.py` (`HardStopGradientCBM`) | `experiments/run_m4_sg.py` | `experiments/run_m4_sg_interventions.py` |
+
+Mỗi runner cố định một biến thể; các lệnh mới không có flag `--gradient_mode`. Các lớp CBM cùng backbone/concept heads nằm trong `src/cbm.py`, còn quy trình train/test và báo cáo dùng chung helpers để giữ phép so sánh nhất quán. Import cũ từ `src/models.py` vẫn được hỗ trợ; dùng `run_m4_st.py` cho ST và `run_m4_sg.py` cho SG.
+
+M4-SG chỉ thay luồng gradient so với M4-ST: one-hot bottleneck được detach trước diagnosis head. Loss chẩn đoán cập nhật diagnosis head; concept loss cập nhật concept heads và backbone. Cả hai loss vẫn được tối ưu trong cùng bước train. Giữ nguyên EfficientNet-B0, Linear 28→2, preprocessing, weighted loss, LR, dropout, 10 epochs và tiêu chí checkpoint/ngưỡng validation để đối chiếu riêng cơ chế gradient.
+
+Đây là ablation của M4-ST, chưa phải bản tái lập đầy đủ Nápoles (paper dùng diagnosis MLP128 và pipeline huấn luyện khác). M5 vẫn dành cho ECBM.
+
+Chạy seed 42 theo cấu hình cố định (train → validation → frozen test):
+
+```bash
+python3 experiments/run_m4_sg.py --seed 42 --num_workers 0
+```
+
+Ba seeds và tổng hợp diagnosis/intervention:
+
+```bash
+for m4_sg_seed in 42 123 2026; do
+  python3 experiments/run_m4_sg.py --seed "$m4_sg_seed" --num_workers 0 || break
+done
+
+python3 experiments/summarize_seeds.py \
+  --results results/f1_macro/m4_sg/linear_e10/seed42.json \
+            results/f1_macro/m4_sg/linear_e10/seed123.json \
+            results/f1_macro/m4_sg/linear_e10/seed2026.json \
+  --output_path results/f1_macro/m4_sg/linear_e10/test_summary.json
+
+python3 experiments/run_m4_sg_interventions.py
+```
+
+Nếu đã chạy riêng seed 42, chạy tiếp seeds 123 và 2026; lệnh mặc định từ chối ghi đè kết quả có sẵn. Với pilot chỉ train/validation, thêm `--skip_test` và dùng đường dẫn local riêng như M4-ST. Chốt mọi lựa chọn/tuning bằng validation trước khi đọc test.
+
+SG có model `M4_HardStopGradientCBM`, protocol `hard_joint_sg_state_weighted_v1`, checkpoint `checkpoints/f1_macro/m4_hard_sg_cbm_seed{seed}_ckptf1macro_best.pth` và JSON `results/f1_macro/m4_sg/linear_e10/seed{seed}.json`. Batch intervention mới xuất riêng vào `results/f1_macro/m4_sg/linear_e10/intervention/`. Checkpoint/export ST và SG không được ghép hoặc gộp chung seeds.
+
+Runner ST và SG chỉ chấp nhận checkpoint của đúng biến thể tương ứng. Chạy frozen test và intervention SG:
+
+```bash
+python3 experiments/run_m4_sg.py --mode test --seed 42 --overwrite
+python3 experiments/run_m4_sg.py --mode intervention --seed 42
+```
+
+Tests SG kiểm tra diagnosis loss không cập nhật concept heads/backbone, concept loss vẫn cập nhật chúng, hard forward và khởi tạo khớp ST, cũng như train/test, checkpoint identity, tổng hợp seeds và 128 intervention subsets.
+
+### Thử learning rate riêng cho diagnosis head M4-SG
+
+`--lr` điều khiển backbone/concept heads; `--diagnosis_lr` tách LR của diagnosis head thành optimizer group riêng. Không truyền `--diagnosis_lr` thì giữ optimizer cũ. Cấu hình có LR head riêng lưu thêm `diagnosis_learning_rate`, optimizer groups và LR từng epoch; đường dẫn mặc định có hậu tố head LR/epochs để tách khỏi baseline. Checkpoint cũ vẫn được hỗ trợ.
+
+Ví dụ một pilot, chỉ dùng train/validation:
+
+```bash
+python3 experiments/run_m4_sg.py --diagnosis_lr 0.001 --epochs 20 --seed 42 --skip_test
+```
+
+**Study BAcc đã hoàn tất:** grid head LR `1e-4`, `5e-4`, `1e-3`; mỗi mức dùng 20 epochs và seeds 42/123/2026, concept predictor LR `1e-4`, weight decay `1e-2`. LR được chọn theo mean validation diagnosis BAcc@0.5, hòa ưu tiên LR nhỏ hơn. Quyết định đã được ghi vào `frozen_selection.json` trước khi đánh giá test đối chứng 20 epochs `1e-4` và LR được chọn; ngưỡng test lấy từ validation riêng của từng checkpoint.
+
+Plan, JSON từng run, summaries, report và biểu đồ vẫn lưu trong `results/bacc/ablation/m4_sg_head_lr_study/`; weights trong `checkpoints/bacc/m4_sg_head_lr_study/`. Script điều phối/phân tích study đã được bỏ. Bộ tuning này được giữ để đối chiếu và không gộp với M4-SG 10 epochs hoặc các cohort chọn checkpoint F1.
+
+Đợt thử đã hoàn tất 9 runs. Validation chọn head LR **1e-3** (concept predictor LR **1e-4**, 20 epochs). Test BAcc đạt **71.59% ± 1.99 điểm %**, Macro-F1 **0.6868 ± 0.0259**, AUC **0.8016 ± 0.0141**. Đối chứng 20 epochs cùng môi trường, head LR 1e-4, đạt BAcc **61.78% ± 1.87 điểm %**. Concept loss của ba mức LR khớp hoàn toàn ở cùng seed/epoch; LR riêng thay cách học diagnosis head. Đây là đợt tuning thăm dò riêng, chưa thay bảng thí nghiệm chính M0–M3.
+
+Chi tiết, learning curves, kiểm tra concept-loss trajectories và paired stratified bootstrap đã lưu trong [báo cáo study LR](results/bacc/ablation/m4_sg_head_lr_study/report.md).
+
+### M4-ST/SG: thử head MLP128 và train ST với LR head riêng
+
+Cả hai runners hỗ trợ `--diagnosis_head linear` (mặc định) hoặc `--diagnosis_head mlp128`. MLP chỉ nhận 28 chiều concept, theo cấu trúc `Linear(28,128) → LayerNorm → ReLU → Dropout(0.3) → Linear(128,2)`. ST vẫn dùng straight-through; SG vẫn chặn diagnosis gradient về concept predictor. Checkpoint lưu kiến trúc head, và test/intervention dựng lại đúng head từ cấu hình đó. Tên file MLP có hậu tố riêng.
+
+Ví dụ pilot M4-ST MLP, chỉ train/validation:
+
+```bash
+python3 experiments/run_m4_st.py --diagnosis_head mlp128 --diagnosis_lr 0.001 --epochs 20 --seed 42 --skip_test
+```
+
+**Study BAcc so sánh head đã hoàn tất:** dùng 20 epochs, head LR `1e-3`, backbone/concept LR `1e-4`, weight decay `1e-2` và `legacy_letterbox`. Ba SG Linear runs đã được tái sử dụng từ study LR; ST Linear, ST MLP và SG MLP có chín runs train mới. Head được chọn riêng cho ST/SG bằng mean validation BAcc@0.5, hòa giữ Linear. Lựa chọn đã được ghi vào `frozen_selection.json` trước khi test Linear controls và heads được chọn. Mã điều phối/phân tích study đã được bỏ; checkpoint, JSON, summaries, báo cáo và biểu đồ cũ vẫn được giữ.
+
+Kết quả lưu trong `results/bacc/ablation/m4_head_comparison/`, tách khỏi baseline 10 epochs. Đây là thử một thay đổi kiến trúc với protocol khóa luận; chưa phải tái lập toàn bộ Nápoles. Mốc đối chiếu cùng raw Derm7pt / EfficientNet-B0 là **HardCBM test Macro F1 0.73 ± 0.03**, không phải accuracy/BAcc; paper dùng 5 seeds, preprocessing/augmentation khác và chọn checkpoint bằng validation Macro F1. [Nápoles et al., Scientific Reports (2026)](https://www.nature.com/articles/s41598-026-56927-2).
+
+Đợt so sánh đã hoàn tất chín runs mới và tái sử dụng ba SG Linear runs. Validation chọn MLP cho cả ST/SG, nhưng test không xác nhận tăng BAcc: ST Linear **74.15% ± 2.26**, ST MLP **72.59% ± 1.97**; SG Linear **71.59% ± 1.99**, SG MLP **71.50% ± 1.59**. Cả hai paired case-bootstrap CI 95% của chênh lệch MLP–Linear đều chứa 0. SG MLP tăng Macro F1 quan sát từ **0.6868** lên **0.7026**; vẫn thấp hơn mean **0.73** của paper. ST Linear đạt Macro F1 **0.7250**, nhưng ST có gradient khác HardCBM stop-gradient của paper.
+
+Kết quả này hỗ trợ việc train lại ST với LR head riêng/20 epochs so với baseline cũ; chưa đủ để đổi head chính sang MLP nhằm cải thiện BAcc. Default vẫn là baseline Linear 10 epochs; để chạy ST Linear với cấu hình thử mới, dùng `--diagnosis_lr 0.001 --epochs 20`. Đây chưa phải LR tối ưu đã được tune riêng cho ST. Báo cáo, kiểm tra 12 checkpoints/thresholds và biểu đồ: [`results/bacc/ablation/m4_head_comparison/report.md`](results/bacc/ablation/m4_head_comparison/report.md).
+
+---
+
+## 9. Bảng lưu trữ M0–M3: checkpoint chọn theo BAcc
+
+**Bảng cũ để đối chiếu, không phải bảng kết quả chính hiện tại.** Các runs dưới đây chọn checkpoint theo validation BAcc@0.5 và được lưu trong `results/bacc/`; M0 là mốc dùng chung. [Bảng chính chọn checkpoint Macro F1](results/f1_macro/all_models_comparison.md) đã có M3/M4-ST/M4-SG MLP128 20 epochs và báo cáo riêng [GT-assisted intervention](results/f1_macro/interventions_comparison.md). Khi viết khóa luận, dùng bảng F1 ở phần kết quả chính; giữ bảng BAcc ở phần thử nghiệm bổ sung/phụ lục. Cột metric BAcc vẫn có thể báo cáo trong bảng F1, vì metric và tiêu chí chọn checkpoint là hai việc khác nhau.
+
+M1, M2 MLP và M3 dùng ba seeds 42, 123, 2026, báo cáo mean ± sample SD. M0 là baseline xác định; M2 LR dùng một seed với solver lbfgs. SD của Balanced Accuracy có đơn vị điểm phần trăm. Hai exports M3 unweighted cũ đã được xoá sau khi hoàn thành bộ M3 weighted.
 
 | Model | Balanced Acc | Macro-F1 | ROC-AUC | AP | Runs |
 |:---|:---:|:---:|:---:|:---:|:---:|
@@ -262,7 +509,7 @@ Kết quả hiện tại lấy từ các JSON trong `results/`. M1, M2 MLP và M
 
 ### M1: ba seeds đã hoàn thành
 
-M1 đã hoàn thành train/validation và test cho seeds 42, 123, 2026 với cấu hình 10 epochs, batch 16, LR 1e-4, weight decay 1e-2, legacy_letterbox. Checkpoint tốt nhất lần lượt ở epochs 7, 7, 8; threshold lấy từ validation của từng checkpoint. Các metrics test đã được tính lại từ prediction records và tổng hợp trong [m1_three_seeds_summary.json](results/m1_three_seeds_summary.json).
+M1 đã hoàn thành train/validation và test cho seeds 42, 123, 2026 với cấu hình 10 epochs, batch 16, LR 1e-4, weight decay 1e-2, legacy_letterbox. Checkpoint tốt nhất lần lượt ở epochs 7, 7, 8; threshold lấy từ validation của từng checkpoint. Các metrics test đã được tính lại từ prediction records và tổng hợp trong [test_summary.json của M1](results/bacc/m1/efficientnet_b0_e10/test_summary.json).
 
 | Seed | Test Balanced Accuracy | Test Macro-F1 | ROC-AUC | AP |
 |---|---:|---:|---:|---:|
@@ -284,7 +531,7 @@ M3 đã train và test cho seeds **42, 123, 2026** trên MPS, cùng cấu hình 
 | 2026 | 75.24% | 0.7200 | 0.7999 | 0.5916 |
 | Mean ± sample SD | 70.30% ± 4.58 điểm % | 0.6844 ± 0.0326 | 0.7616 ± 0.0446 | 0.5917 ± 0.0240 |
 
-Concept accuracy trung bình là **59.61% ± 2.50 điểm %**, mean concept Macro-F1 all-defined **0.4570 ± 0.0185**, exact match cả bảy concepts **4.22% ± 0.81 điểm %**. Kết quả lưu trong [m3_three_seeds_summary.json](results/m3_three_seeds_summary.json); log từng seed nằm trong `results/logs/`. Đã xác nhận checkpoint hash, config, epoch, threshold và đúng 203/395 predictions validation/test; metrics diagnosis được tính lại từ từng prediction trước khi tổng hợp.
+Concept accuracy trung bình là **59.61% ± 2.50 điểm %**, mean concept Macro-F1 all-defined **0.4570 ± 0.0185**, exact match cả bảy concepts **4.22% ± 0.81 điểm %**. Kết quả lưu trong [test_summary.json của M3 Linear](results/bacc/m3/linear_e10/test_summary.json). Đã xác nhận checkpoint hash, config, epoch, threshold và đúng 203/395 predictions validation/test; metrics diagnosis được tính lại từ từng prediction trước khi tổng hợp.
 
 Balanced Accuracy trung bình M3 (70.30%) gần M1 (70.74%), nhưng SD giữa seeds lớn hơn và ROC-AUC trung bình thấp hơn. Đây là so sánh mô tả; chưa thực hiện paired bootstrap để kết luận về chênh lệch.
 
@@ -304,10 +551,10 @@ Sau khi có đủ ba exports M1:
 
 ```bash
 python3 experiments/summarize_seeds.py \
-  --results results/m1_efficientnet_b0_seed42_results.json \
-            results/m1_efficientnet_b0_seed123_results.json \
-            results/m1_efficientnet_b0_seed2026_results.json \
-  --output_path results/m1_three_seeds_summary.json
+  --results results/bacc/m1/efficientnet_b0_e10/seed42.json \
+            results/bacc/m1/efficientnet_b0_e10/seed123.json \
+            results/bacc/m1/efficientnet_b0_e10/seed2026.json \
+  --output_path results/bacc/m1/efficientnet_b0_e10/test_summary.json
 ```
 
 Summarizer yêu cầu ít nhất ba seeds khác nhau, cùng cấu hình huấn luyện, cùng manifest/schema và đúng ca/nhãn test. Metrics diagnosis được tính lại từ predictions trước khi tổng hợp. SD dùng `ddof=1` giữa seeds; đây chưa phải CI theo mẫu hoặc kiểm định so sánh cặp. Ghi lại môi trường của từng run; ưu tiên cùng môi trường cho bộ thí nghiệm chính.
@@ -316,10 +563,10 @@ Với M3 sau khi có đủ ba exports test:
 
 ```bash
 python3 experiments/summarize_seeds.py \
-  --results results/m3_soft_joint_cbm_seed42_results.json \
-            results/m3_soft_joint_cbm_seed123_results.json \
-            results/m3_soft_joint_cbm_seed2026_results.json \
-  --output_path results/m3_three_seeds_summary.json
+  --results results/bacc/m3/linear_e10/seed42.json \
+            results/bacc/m3/linear_e10/seed123.json \
+            results/bacc/m3/linear_e10/seed2026.json \
+  --output_path results/bacc/m3/linear_e10/test_summary.json
 ```
 
 ### Kiểm tra code
@@ -329,7 +576,9 @@ python3 -m unittest discover -s tests -p 'test_*.py' -v
 python3 tests/test_data_pipeline.py
 ```
 
-Tests gồm 38 kiểm tra protocol, trong đó có regression mapping/LF–CRLF, lệnh train → test lưu một JSON cho cả bốn runners, giữ validation khi cập nhật test, từ chối gộp hai runs khác nhau, kiểm tra file đầu ra trước train, luồng weighted M3 → export → 128 intervention subsets bằng mạng nhỏ thay cho backbone, cùng oracle MLP và tổng hợp seeds. Các smoke tests dùng thư mục tạm; không tạo kết quả thực nghiệm chính. Chạy trong môi trường đã cài dependencies của dự án.
+Tests kiểm tra mapping/LF–CRLF, bảo vệ artifact, train → frozen test, giữ validation khi re-export, hard forward, gradient ST/SG, `--skip_test`/`--no_save`, M4 checkpoint identity, hard export và concept metric integrity, 128 intervention subsets, tổng hợp ba seeds và regression report M3. Các smoke tests dùng mạng nhỏ trong thư mục tạm; không tạo kết quả thực nghiệm chính. Chạy trong môi trường đã cài dependencies của dự án.
+
+Tên file test chỉ rõ biến thể: M2 dùng `tests/test_m2_lr_protocol.py` và `tests/test_m2_mlp_protocol.py`; M4 dùng `tests/test_m4_st_protocol.py` và `tests/test_m4_sg_protocol.py`. Các kiểm tra chung giữa nhiều runners nằm trong `tests/test_protocol_safety.py`.
 
 ---
 

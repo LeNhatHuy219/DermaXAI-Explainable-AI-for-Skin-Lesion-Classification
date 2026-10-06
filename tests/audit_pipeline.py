@@ -275,4 +275,4 @@ check("is_inconsistent_profile recomputation matches", mismatch == 0,
 # Summary
 total = passed + failed
 print(f"\nAudit complete: {passed}/{total} checks passed, {failed} failed.")
-
+sys.exit(1 if failed else 0)

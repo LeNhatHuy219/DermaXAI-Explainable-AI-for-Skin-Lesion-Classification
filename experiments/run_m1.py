@@ -1,3 +1,11 @@
+# M1 - Black-box EfficientNet-B0: dự đoán diagnosis trực tiếp từ ảnh.
+# Đầu vào: data/manifest.csv và ảnh Derm7pt; diagnosis labels giám sát train.
+# Luồng: train/validation -> chọn best epoch -> chọn ngưỡng validation -> frozen test.
+# Mặc định chọn epoch theo Macro F1@0.5; chọn ngưỡng riêng bằng validation BAcc.
+# Đầu ra JSON: results/<metric>/m1/<cấu hình>/seed<seed>.json.
+# checkpoint_metric=balanced_accuracy dùng thư mục BAcc; có thể truyền đường dẫn riêng.
+# Đọc run_m1_experiment() cho phần học, evaluate_m1_test() cho test, main() cho CLI.
+
 import argparse
 import hashlib
 import json
@@ -24,6 +32,9 @@ from src.dataset import Derm7ptDataset, get_dataloaders
 from src.metrics import compute_metrics, print_metrics_table
 from src.models import BlackBoxClassifier, load_blackbox_state_dict
 from src.transforms import get_transforms
+from src.selection import (DEFAULT_CHECKPOINT_METRIC, selection_name, selection_score,
+                           selection_suffix, metric_from_config, add_selection_argument,
+                           checkpoint_directory, configuration_name, results_run_path)
 from src.protocol import (manifest_fingerprint, validate_manifest, prepare_training_outputs,
                           save_experiment_results)
 
@@ -36,6 +47,7 @@ DEFAULT_SEED = 42
 DEFAULT_AUGMENTATION_PRESET = "legacy_letterbox"
 
 
+# Gán seed cho Python/NumPy/PyTorch để kiểm soát nguồn ngẫu nhiên của run.
 def set_seed(seed: int = DEFAULT_SEED) -> None:
     # Cố định seed cho các thư viện để kết quả có thể tái lập
     random.seed(seed)
@@ -47,6 +59,7 @@ def set_seed(seed: int = DEFAULT_SEED) -> None:
         torch.mps.manual_seed(seed)
 
 
+# Chọn thiết bị theo CLI; auto ưu tiên CUDA, rồi MPS, rồi CPU.
 def get_device(device_arg: str = "auto") -> torch.device:
     # Tự động ưu tiên CUDA (NVIDIA GPU / Colab / Server), sau đó Apple Silicon (MPS) và CPU
     if device_arg != "auto":
@@ -58,6 +71,7 @@ def get_device(device_arg: str = "auto") -> torch.device:
     return torch.device("cpu")
 
 
+# Ghép case IDs/GT/probabilities/predictions thành records để lưu và kiểm tra từng ca.
 def _extract_sample_predictions(
     df: pd.DataFrame,
     y_pred: np.ndarray,
@@ -79,6 +93,7 @@ def _extract_sample_predictions(
     return records
 
 
+# Học một epoch: forward ảnh -> diagnosis loss -> backward/optimizer; trả loss và BAcc train.
 def train_one_epoch(
     model: nn.Module,
     loader: DataLoader,
@@ -113,6 +128,7 @@ def train_one_epoch(
     return avg_loss, metrics["balanced_accuracy"]
 
 
+# Eval/no_grad trên loader; trả diagnosis metrics/loss và predictions, không cập nhật weights.
 @torch.no_grad()
 def evaluate(
     model: nn.Module,
@@ -148,8 +164,8 @@ def evaluate(
     return metrics, avg_loss, preds, probs
 
 
+# Chọn ngưỡng tối đa BAcc trên validation; hòa ưu tiên gần 0.5, giữ ngưỡng cho test.
 def select_validation_threshold(y_true: np.ndarray, y_prob: np.ndarray) -> Tuple[float, float]:
-    """Maximize validation balanced accuracy; break ties toward the fixed 0.5 threshold."""
     y_true = np.asarray(y_true, dtype=int)
     y_prob = np.asarray(y_prob, dtype=float)
     if len(y_true) != len(y_prob) or len(np.unique(y_true)) != 2:
@@ -171,6 +187,7 @@ def select_validation_threshold(y_true: np.ndarray, y_prob: np.ndarray) -> Tuple
     return best_threshold, best_score
 
 
+# Tính SHA-256 nội dung file để ghép đúng manifest/checkpoint với export.
 def _manifest_hash(manifest_path: str) -> str:
     digest = hashlib.sha256()
     with open(manifest_path, "rb") as handle:
@@ -179,28 +196,44 @@ def _manifest_hash(manifest_path: str) -> str:
     return digest.hexdigest()
 
 
-def _default_paths(seed: int = DEFAULT_SEED, augmentation_preset: str = DEFAULT_AUGMENTATION_PRESET) -> Tuple[str, str]:
+# Tạo checkpoint/JSON paths theo cấu hình, seed và tiêu chí chọn checkpoint.
+def _default_paths(seed: int = DEFAULT_SEED, augmentation_preset: str = DEFAULT_AUGMENTATION_PRESET,
+                   checkpoint_metric: str = DEFAULT_CHECKPOINT_METRIC,
+                   epochs: int = DEFAULT_EPOCHS, lr: float = DEFAULT_LR,
+                   weight_decay: float = DEFAULT_WEIGHT_DECAY) -> Tuple[str, str]:
     if augmentation_preset == DEFAULT_AUGMENTATION_PRESET:
         stem = f"m1_efficientnet_b0_seed{seed}"
     else:
         stem = f"m1_efficientnet_b0_{augmentation_preset}_seed{seed}"
+    stem += selection_suffix(checkpoint_metric)
+    configuration = configuration_name("efficientnet_b0", epochs,
+        augmentation_preset=augmentation_preset, lr=lr, weight_decay=weight_decay)
     return (
-        os.path.join(PROJECT_ROOT, "checkpoints", f"{stem}_best.pth"),
-        os.path.join(PROJECT_ROOT, "results", f"{stem}_results.json"),
+        str(checkpoint_directory(PROJECT_ROOT, checkpoint_metric) / f"{stem}_best.pth"),
+        str(results_run_path(PROJECT_ROOT, checkpoint_metric, "m1", configuration, seed)),
     )
 
 
+def _config_paths(config):
+    return _default_paths(config["seed"], config["augmentation_preset"], metric_from_config(config),
+        config.get("epochs", DEFAULT_EPOCHS), config.get("learning_rate", DEFAULT_LR),
+        config.get("weight_decay", DEFAULT_WEIGHT_DECAY))
+
+
+# Tạo thư mục cha và từ chối ghi đè file đã có nếu chưa bật overwrite.
 def _prepare_output(path: str, overwrite: bool) -> None:
     if os.path.exists(path) and not overwrite:
         raise FileExistsError(f"Artifact already exists: {path}. Choose another path or pass --overwrite.")
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
 
 
+# Lưu dict kết quả thành JSON; không thực hiện thêm train hoặc chọn model.
 def _save_json(path: str, payload: Dict[str, Any]) -> None:
     with open(path, "w", encoding="utf-8") as handle:
         json.dump(payload, handle, ensure_ascii=False, indent=2)
 
 
+# Train/validation, lưu best epoch và ngưỡng validation; chưa đọc test trong hàm này.
 def run_m1_experiment(
     manifest_path: str = None,
     epochs: int = DEFAULT_EPOCHS,
@@ -215,10 +248,11 @@ def run_m1_experiment(
     augmentation_preset: str = DEFAULT_AUGMENTATION_PRESET,
     overwrite: bool = False,
     num_workers: int = 2,
+    checkpoint_metric: str = DEFAULT_CHECKPOINT_METRIC,
 ) -> Dict[str, Any]:
-    """Train and select the checkpoint/threshold using train and validation only."""
     if epochs < 1 or batch_size < 1 or num_workers < 0:
         raise ValueError("epochs/batch_size must be positive and num_workers non-negative")
+    selection_name(checkpoint_metric)
     set_seed(seed)
     device = get_device(device_name)
 
@@ -226,7 +260,7 @@ def run_m1_experiment(
         manifest_path = os.path.join(PROJECT_ROOT, "data", "manifest.csv")
     manifest_path = os.path.abspath(manifest_path)
     checkpoint_path, results_path = prepare_training_outputs(
-        _default_paths(seed, augmentation_preset), checkpoint_path, results_path,
+        _default_paths(seed, augmentation_preset, checkpoint_metric, epochs, lr, weight_decay), checkpoint_path, results_path,
         overwrite, save_results,
     )
 
@@ -263,7 +297,7 @@ def run_m1_experiment(
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs, eta_min=1e-6)
 
-    best_val_bacc = -1.0
+    best_score = -1.0
     best_epoch = -1
     history: List[Dict[str, float]] = []
     config = {
@@ -281,7 +315,7 @@ def run_m1_experiment(
         "target_size": 224,
         "num_workers": num_workers,
         "scheduler": "CosineAnnealingLR(eta_min=1e-6)",
-        "checkpoint_selection": "validation_balanced_accuracy_at_0.5",
+        "checkpoint_selection": selection_name(checkpoint_metric),
         "threshold_selection": "maximize_validation_balanced_accuracy_tie_nearest_0.5",
         "torch_version": str(torch.__version__),
         "torchvision_version": str(torchvision.__version__),
@@ -299,6 +333,7 @@ def run_m1_experiment(
         scheduler.step()
 
         val_bacc = val_metrics["balanced_accuracy"]
+        val_f1_macro = val_metrics["f1_macro"]
         val_f1_mel = val_metrics["f1_melanoma"]
         val_auc = val_metrics["roc_auc"] if val_metrics["roc_auc"] is not None else 0.0
         history.append({
@@ -307,22 +342,27 @@ def run_m1_experiment(
             "train_balanced_accuracy": train_bacc,
             "validation_loss": val_loss,
             "validation_balanced_accuracy_at_0.5": val_bacc,
+            "validation_f1_macro_at_0.5": val_f1_macro,
             "validation_f1_melanoma_at_0.5": val_f1_mel,
             "validation_roc_auc": val_auc,
             "validation_pr_auc": val_metrics["pr_auc"],
         })
 
-        is_best = val_bacc > best_val_bacc
+        # Chọn diagnosis Macro F1 @0.5; hòa giữ epoch đầu, test không tham gia.
+        score = selection_score(val_metrics, checkpoint_metric)
+        is_best = score > best_score
         best_marker = " [BEST]" if is_best else ""
 
         if is_best:
-            best_val_bacc = val_bacc
+            best_score = score
             best_epoch = epoch
             torch.save({
                 "epoch": epoch,
                 "model_state_dict": model.state_dict(),
                 "optimizer_state_dict": optimizer.state_dict(),
                 "val_balanced_acc": val_bacc,
+                "val_f1_macro": val_f1_macro,
+                "selection_score": score,
                 "val_metrics": val_metrics,
                 "config": config,
                 "manifest_sha256": manifest_sha256,
@@ -334,11 +374,12 @@ def run_m1_experiment(
             f"Train Loss: {train_loss:.4f} (BAcc: {train_bacc * 100:.2f}%) | "
             f"Valid Loss: {val_loss:.4f} | "
             f"Valid BAcc: {val_bacc * 100:.2f}% | "
+            f"Valid Macro F1: {val_f1_macro:.4f} | "
             f"Valid F1-Mel: {val_f1_mel:.4f} | "
             f"Valid AUC: {val_auc:.4f}{best_marker}"
         )
 
-    print(f"\nHuấn luyện hoàn tất! Checkpoint tốt nhất tại Epoch {best_epoch:02d} (Valid Balanced Acc: {best_val_bacc * 100:.2f}%)")
+    print(f"\nHuấn luyện hoàn tất! Checkpoint tốt nhất tại Epoch {best_epoch:02d} (Valid {checkpoint_metric}@0.5: {best_score:.4f})")
     print(f"Checkpoint đã lưu tại: {checkpoint_path}")
 
     # Chọn threshold trên validation của checkpoint đã chọn, không đọc test.
@@ -392,6 +433,7 @@ def run_m1_experiment(
     return results
 
 
+# Nạp best weights/ngưỡng đã chốt, chấm test và lưu phần test của cùng run.
 def evaluate_m1_test(
     checkpoint_path: str,
     manifest_path: str = None,
@@ -400,7 +442,6 @@ def evaluate_m1_test(
     save_results: bool = True,
     overwrite: bool = False,
 ) -> Dict[str, Any]:
-    """One explicit final test evaluation using a frozen checkpoint and threshold."""
     if manifest_path is None:
         manifest_path = os.path.join(PROJECT_ROOT, "data", "manifest.csv")
     manifest_path = os.path.abspath(manifest_path)
@@ -411,11 +452,12 @@ def evaluate_m1_test(
     validate_manifest(checkpoint, manifest_path)
 
     config = checkpoint["config"]
+    metric_from_config(config)
     threshold = float(checkpoint["decision_threshold"])
     if not 0 <= threshold <= 1:
         raise ValueError("Invalid threshold in checkpoint")
     if results_path is None:
-        _, results_path = _default_paths(config["seed"], config["augmentation_preset"])
+        _, results_path = _config_paths(config)
     if save_results:
         _prepare_output(results_path, overwrite)
 
@@ -455,6 +497,7 @@ def evaluate_m1_test(
     return results
 
 
+# Đọc CLI: mặc định train -> validation -> test; mode test chỉ nạp frozen checkpoint.
 def main(argv=None):
     parser = argparse.ArgumentParser(description="M1 EfficientNet-B0: train → validation selection → automatic test")
     parser.add_argument("--mode", choices=["train", "test"], default="train", help="train: train rồi tự động test; test: đánh giá checkpoint đã lưu")
@@ -476,11 +519,12 @@ def main(argv=None):
     parser.add_argument("--results_path", type=str, default=None, help="Một file JSON chứa kết quả validation và test")
     parser.add_argument("--overwrite", action="store_true", help="Cho phép ghi đè artifact của cùng run")
     parser.add_argument("--no_save", action="store_true", help="Không lưu kết quả vào file")
+    add_selection_argument(parser)
     args = parser.parse_args(argv)
 
     if args.mode == "train":
         checkpoint_path, results_path = prepare_training_outputs(
-            _default_paths(args.seed, args.augmentation_preset), args.checkpoint_path,
+            _default_paths(args.seed, args.augmentation_preset, args.checkpoint_metric, args.epochs, args.lr, args.weight_decay), args.checkpoint_path,
             args.results_path, args.overwrite, not args.no_save,
         )
         validation = run_m1_experiment(
@@ -496,6 +540,7 @@ def main(argv=None):
             augmentation_preset=args.augmentation_preset,
             overwrite=args.overwrite,
             num_workers=args.num_workers,
+            checkpoint_metric=args.checkpoint_metric,
         )
         if not args.no_save:
             save_experiment_results(results_path, validation=validation, overwrite=args.overwrite)
@@ -507,8 +552,11 @@ def main(argv=None):
         if not args.no_save:
             save_experiment_results(results_path, validation=validation, test=test, overwrite=True)
     else:
-        checkpoint_path = args.checkpoint_path or _default_paths(args.seed, args.augmentation_preset)[0]
-        results_path = args.results_path or _default_paths(args.seed, args.augmentation_preset)[1]
+        checkpoint_path = args.checkpoint_path or _default_paths(args.seed, args.augmentation_preset, args.checkpoint_metric)[0]
+        results_path = args.results_path
+        if results_path is None:
+            config = torch.load(checkpoint_path, map_location="cpu", weights_only=True)["config"]
+            results_path = _config_paths(config)[1]
         if not args.no_save:
             _prepare_output(results_path, args.overwrite)
         test = evaluate_m1_test(

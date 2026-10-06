@@ -1,3 +1,13 @@
+# M3 - Soft Joint CBM: ảnh -> bảy concept distributions -> diagnosis head.
+# Đầu vào: ảnh, diagnosis labels và concept annotations trong manifest.
+# Diagnosis head nhận predicted soft probabilities 28 chiều, không nhận GT concepts.
+# Loss = diagnosis loss + lambda * mean concept losses; gradient joint về toàn model.
+# Head hỗ trợ Linear/MLP128 và LR riêng; chọn epoch/ngưỡng bằng validation.
+# Đầu ra JSON: results/<metric>/m3/<cấu hình>/seed<seed>.json; checkpoint giữ tên cũ.
+# Intervention: thay các soft concept groups bằng GT one-hot, giữ frozen head/ngưỡng.
+# Đọc run_m3_experiment -> evaluate_m3_test -> run_m3_intervention; main đọc CLI.
+# BAcc hoặc đường dẫn tùy chỉnh được hỗ trợ; --skip_test chỉ chạy train/validation.
+
 import argparse
 import hashlib
 import json
@@ -35,11 +45,15 @@ from src.metrics import (
     print_metrics_table,
 )
 from src.models import SoftJointCBM, get_soft_joint_cbm, load_soft_joint_cbm_state_dict
+from src.cbm import make_diagnosis_head
 from src.transforms import get_transforms
 from src.protocol import (manifest_fingerprint, load_concept_schema, prepare_training_outputs,
                           save_experiment_results,
                           validate_manifest, validate_concept_schema)
 from src.intervention import evaluate_soft_interventions
+from src.selection import (DEFAULT_CHECKPOINT_METRIC, selection_name, selection_score,
+                           selection_suffix, metric_from_config, add_selection_argument,
+                           checkpoint_directory, configuration_name, results_run_path)
 
 # M3 - Soft Joint CBM: Ảnh -> 7 concept dự đoán dạng soft probability -> Diagnosis.
 # Đây là CBM baseline chính (đối chiếu với M2 Oracle để đánh giá concept sufficiency,
@@ -55,8 +69,10 @@ DEFAULT_SEED = 42
 DEFAULT_AUGMENTATION_PRESET = "legacy_letterbox"
 DEFAULT_CONCEPT_LOSS_WEIGHT = 1.0
 M3_PROTOCOL = "soft_joint_state_weighted_v1"
+DIAGNOSIS_HEADS = {"linear": "Linear(28, 2)", "mlp128": "MLP(28, 128, 2)"}
 
 
+# Gán seed cho Python/NumPy/PyTorch để kiểm soát nguồn ngẫu nhiên của run.
 def set_seed(seed: int = DEFAULT_SEED) -> None:
     random.seed(seed)
     np.random.seed(seed)
@@ -67,6 +83,7 @@ def set_seed(seed: int = DEFAULT_SEED) -> None:
         torch.mps.manual_seed(seed)
 
 
+# Chọn thiết bị theo CLI; auto ưu tiên CUDA, rồi MPS, rồi CPU.
 def get_device(device_arg: str = "auto") -> torch.device:
     if device_arg != "auto":
         return torch.device(device_arg)
@@ -77,6 +94,7 @@ def get_device(device_arg: str = "auto") -> torch.device:
     return torch.device("cpu")
 
 
+# Tính SHA-256 nội dung file để ghép đúng manifest/checkpoint với export.
 def _manifest_hash(manifest_path: str) -> str:
     digest = hashlib.sha256()
     with open(manifest_path, "rb") as handle:
@@ -85,8 +103,8 @@ def _manifest_hash(manifest_path: str) -> str:
     return digest.hexdigest()
 
 
+# Chọn ngưỡng tối đa BAcc trên validation; hòa ưu tiên gần 0.5, giữ ngưỡng cho test.
 def select_validation_threshold(y_true: np.ndarray, y_prob: np.ndarray) -> Tuple[float, float]:
-    """Maximize validation balanced accuracy; break ties toward the fixed 0.5 threshold."""
     y_true = np.asarray(y_true, dtype=int)
     y_prob = np.asarray(y_prob, dtype=float)
     if len(y_true) != len(y_prob) or len(np.unique(y_true)) != 2:
@@ -108,6 +126,7 @@ def select_validation_threshold(y_true: np.ndarray, y_prob: np.ndarray) -> Tuple
     return best_threshold, best_score
 
 
+# Ghi lại states có trong train để báo cáo thêm concept F1 trên states đã quan sát.
 def compute_train_observed_states(
     train_df: pd.DataFrame, label_mapping: Dict[str, Dict[str, int]]
 ) -> Dict[str, List[int]]:
@@ -119,6 +138,7 @@ def compute_train_observed_states(
     return observed
 
 
+# Ghép case IDs/GT/probabilities/predictions thành records để lưu và kiểm tra từng ca.
 def _extract_sample_predictions(
     df: pd.DataFrame, y_pred: np.ndarray, y_prob: np.ndarray,
     concept_outputs: Dict[str, Any] = None,
@@ -145,6 +165,7 @@ def _extract_sample_predictions(
     return records
 
 
+# Tính loss từng concept group bằng criterion tương ứng rồi lấy mean của bảy groups.
 def _concept_loss(
     concept_logits: Dict[str, torch.Tensor],
     concept_indices: torch.Tensor,
@@ -158,8 +179,8 @@ def _concept_loss(
     return torch.stack(losses).mean()
 
 
+# Cross-entropy concept có trọng số theo state; nhận weights đã tính từ dữ liệu train.
 class StateWeightedCE(nn.Module):
-    """Train-state weighted CE; an evaluation batch of zero-weight states yields 0."""
     def __init__(self, weights):
         super().__init__()
         weights = torch.as_tensor(weights, dtype=torch.float32)
@@ -173,6 +194,7 @@ class StateWeightedCE(nn.Module):
         return loss.sum() / denominator.clamp_min(torch.finfo(logits.dtype).eps)
 
 
+# Tạo criterion riêng cho mỗi concept group trên thiết bị đang dùng.
 def build_concept_criteria(state_weights, device):
     if not isinstance(state_weights, dict) or set(state_weights) != set(CONCEPT_NAMES):
         raise ValueError("M3 requires train-state weights for all seven concept groups")
@@ -181,12 +203,34 @@ def build_concept_criteria(state_weights, device):
     return {c: StateWeightedCE(state_weights[c]).to(device) for c in CONCEPT_NAMES}
 
 
+# Đọc kiến trúc diagnosis head đã lưu; chấp nhận Linear hoặc MLP128.
+def _head_preset(config):
+    # Checkpoints Linear cũ có thể chưa khai báo kiến trúc head.
+    description = config.get("diagnosis_head", DIAGNOSIS_HEADS["linear"])
+    for preset, expected in DIAGNOSIS_HEADS.items():
+        if description == expected:
+            return preset
+    raise ValueError("Unknown M3 diagnosis head in checkpoint")
+
+
+# Kiểm tra protocol soft joint, kiến trúc head và metadata weights trước khi nạp model.
 def validate_m3_config(config):
+    if not isinstance(config, dict):
+        raise ValueError("Expected M3 checkpoint configuration")
     if config.get("protocol") != M3_PROTOCOL or config.get("concept_weighting") != "balanced":
         raise ValueError("Checkpoint is not the finalized weighted M3 protocol; train M3 again")
+    metric_from_config(config)
+    head = _head_preset(config)
+    if head == "mlp128" and (config.get("diagnosis_hidden_dim") != 128 or
+            config.get("diagnosis_dropout") != 0.3 or config.get("diagnosis_normalization") != "LayerNorm"):
+        raise ValueError("Invalid M3 MLP128 diagnosis head specification")
+    if "diagnosis_learning_rate" in config and (
+            not np.isfinite(config["diagnosis_learning_rate"]) or config["diagnosis_learning_rate"] <= 0):
+        raise ValueError("Invalid M3 diagnosis learning rate")
     return build_concept_criteria(config.get("concept_state_weights"), torch.device("cpu"))
 
 
+# Học joint bằng diagnosis loss + lambda * concept loss; gradient đi qua soft concepts.
 def train_one_epoch(
     model: SoftJointCBM,
     loader: DataLoader,
@@ -231,6 +275,7 @@ def train_one_epoch(
     return total_loss / n, total_diag_loss / n, total_concept_loss / n, diag_bacc
 
 
+# Eval/no_grad, thu diagnosis và concept metrics cùng probabilities/predictions từng ca.
 @torch.no_grad()
 def evaluate(
     model: SoftJointCBM,
@@ -307,31 +352,88 @@ def evaluate(
     )
 
 
+# Tạo checkpoint/JSON paths theo cấu hình, seed và tiêu chí chọn checkpoint.
 def _default_paths(
     seed: int = DEFAULT_SEED,
     augmentation_preset: str = DEFAULT_AUGMENTATION_PRESET,
     concept_loss_weight: float = DEFAULT_CONCEPT_LOSS_WEIGHT,
+    checkpoint_metric: str = DEFAULT_CHECKPOINT_METRIC,
+    diagnosis_head: str = "linear",
+    diagnosis_lr: float = None,
+    epochs: int = DEFAULT_EPOCHS,
+    lr: float = DEFAULT_LR,
+    weight_decay: float = DEFAULT_WEIGHT_DECAY,
 ) -> Tuple[str, str]:
-    stem = f"m3_soft_joint_cbm_seed{seed}"
+    if diagnosis_head not in DIAGNOSIS_HEADS:
+        raise ValueError("Unknown M3 diagnosis head")
+    stem = "m3_soft_joint_cbm"
+    if diagnosis_head != "linear":
+        stem += f"_{diagnosis_head}"
     if augmentation_preset != DEFAULT_AUGMENTATION_PRESET:
-        stem = f"m3_soft_joint_cbm_{augmentation_preset}_seed{seed}"
+        stem += f"_{augmentation_preset}"
+    if concept_loss_weight != DEFAULT_CONCEPT_LOSS_WEIGHT:
+        stem += f"_lambda{concept_loss_weight:g}"
+    if diagnosis_lr is not None:
+        stem += f"_headlr{diagnosis_lr:g}"
+    if epochs != DEFAULT_EPOCHS:
+        stem += f"_epochs{epochs}"
+    if lr != DEFAULT_LR:
+        stem += f"_lr{lr:g}"
+    if weight_decay != DEFAULT_WEIGHT_DECAY:
+        stem += f"_wd{weight_decay:g}"
+    stem += f"_seed{seed}"
+    stem += selection_suffix(checkpoint_metric)
+    configuration = configuration_name(diagnosis_head, epochs, diagnosis_lr,
+        augmentation_preset=augmentation_preset, concept_loss_weight=concept_loss_weight,
+        lr=lr, weight_decay=weight_decay)
     return (
-        os.path.join(PROJECT_ROOT, "checkpoints", f"{stem}_best.pth"),
-        os.path.join(PROJECT_ROOT, "results", f"{stem}_results.json"),
+        str(checkpoint_directory(PROJECT_ROOT, checkpoint_metric) / f"{stem}_best.pth"),
+        str(results_run_path(PROJECT_ROOT, checkpoint_metric, "m3", configuration, seed)),
     )
 
 
+# Suy ra đúng checkpoint/JSON từ config đã chốt, thay vì dùng default mới để đoán.
+def _config_paths(config):
+    return _default_paths(
+        config["seed"], config["augmentation_preset"], config["concept_loss_weight"],
+        metric_from_config(config), diagnosis_head=_head_preset(config),
+        diagnosis_lr=config.get("diagnosis_learning_rate"),
+        epochs=config.get("epochs", DEFAULT_EPOCHS), lr=config.get("learning_rate", DEFAULT_LR),
+        weight_decay=config.get("weight_decay", DEFAULT_WEIGHT_DECAY),
+    )
+
+
+# Tạo AdamW chung LR hoặc tách diagnosis head thành parameter group có LR riêng.
+def _build_optimizer(model, lr, weight_decay, diagnosis_lr=None):
+    # Giữ nguyên optimizer của baseline khi không yêu cầu LR head riêng.
+    if diagnosis_lr is None:
+        return torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
+    if not np.isfinite(diagnosis_lr) or diagnosis_lr <= 0:
+        raise ValueError("diagnosis learning rate must be positive and finite")
+    diagnosis_parameters = list(model.diagnosis_head.parameters())
+    diagnosis_ids = {id(parameter) for parameter in diagnosis_parameters}
+    concept_parameters = [parameter for parameter in model.parameters()
+                          if id(parameter) not in diagnosis_ids]
+    return torch.optim.AdamW([
+        {"params": concept_parameters, "lr": lr, "name": "concept_predictor"},
+        {"params": diagnosis_parameters, "lr": diagnosis_lr, "name": "diagnosis_head"},
+    ], weight_decay=weight_decay)
+
+
+# Tạo thư mục cha và từ chối ghi đè file đã có nếu chưa bật overwrite.
 def _prepare_output(path: str, overwrite: bool) -> None:
     if os.path.exists(path) and not overwrite:
         raise FileExistsError(f"Artifact already exists: {path}. Choose another path or pass --overwrite.")
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
 
 
+# Lưu dict kết quả thành JSON; không thực hiện thêm train hoặc chọn model.
 def _save_json(path: str, payload: Dict[str, Any]) -> None:
     with open(path, "w", encoding="utf-8") as handle:
         json.dump(payload, handle, ensure_ascii=False, indent=2)
 
 
+# Train/validation, chọn best epoch rồi chọn ngưỡng, lưu cả config/history/predictions.
 def run_m3_experiment(
     manifest_path: str = None,
     epochs: int = DEFAULT_EPOCHS,
@@ -347,14 +449,21 @@ def run_m3_experiment(
     augmentation_preset: str = DEFAULT_AUGMENTATION_PRESET,
     overwrite: bool = False,
     num_workers: int = 2,
+    checkpoint_metric: str = DEFAULT_CHECKPOINT_METRIC,
+    diagnosis_head: str = "linear",
+    diagnosis_lr: float = None,
 ) -> Dict[str, Any]:
-    """Train and select the checkpoint/threshold using train and validation only."""
     if epochs < 1 or batch_size < 1 or num_workers < 0:
         raise ValueError("epochs/batch_size must be positive and num_workers non-negative")
+    selection_name(checkpoint_metric)
     if not np.isfinite(concept_loss_weight) or concept_loss_weight < 0:
         raise ValueError("concept_loss_weight must be finite and non-negative")
     if not np.isfinite(lr) or lr <= 0 or not np.isfinite(weight_decay) or weight_decay < 0:
         raise ValueError("learning rate must be positive and weight decay non-negative")
+    if diagnosis_head not in DIAGNOSIS_HEADS:
+        raise ValueError("Unknown M3 diagnosis head")
+    if diagnosis_lr is not None and (not np.isfinite(diagnosis_lr) or diagnosis_lr <= 0):
+        raise ValueError("diagnosis learning rate must be positive and finite")
     set_seed(seed)
     device = get_device(device_name)
 
@@ -362,7 +471,8 @@ def run_m3_experiment(
         manifest_path = os.path.join(PROJECT_ROOT, "data", "manifest.csv")
     manifest_path = os.path.abspath(manifest_path)
     checkpoint_path, results_path = prepare_training_outputs(
-        _default_paths(seed, augmentation_preset, concept_loss_weight),
+        _default_paths(seed, augmentation_preset, concept_loss_weight, checkpoint_metric,
+                       diagnosis_head, diagnosis_lr, epochs, lr, weight_decay),
         checkpoint_path, results_path, overwrite, save_results,
     )
 
@@ -370,10 +480,11 @@ def run_m3_experiment(
     if save_results:
         _prepare_output(results_path, overwrite)
 
-    print("Khởi động M3 - Soft Joint CBM (EfficientNet-B0 -> 7 concept heads -> g Linear)")
+    print(f"Khởi động M3 - Soft Joint CBM (EfficientNet-B0 -> 7 concept heads -> g {DIAGNOSIS_HEADS[diagnosis_head]})")
     print(f"Thiết bị sử dụng: {device} | Random seed: {seed}")
     print(
-        f"Cấu hình: Epochs={epochs}, Batch Size={batch_size}, LR={lr}, Weight Decay={weight_decay}, "
+        f"Cấu hình: Epochs={epochs}, Batch Size={batch_size}, LR={lr}, "
+        f"Diagnosis LR={diagnosis_lr if diagnosis_lr is not None else lr}, Weight Decay={weight_decay}, "
         f"Augmentation={augmentation_preset}, Concept Loss Weight (lambda)={concept_loss_weight}"
     )
 
@@ -401,15 +512,16 @@ def run_m3_experiment(
     statistics = compute_concept_statistics(manifest_path, PROJECT_ROOT)
     state_weights = {c: statistics[c]["weights"] for c in CONCEPT_NAMES}
 
-    model = get_soft_joint_cbm(CONCEPT_NAMES, CONCEPT_NUM_CLASSES, num_classes=2, pretrained=True)
+    model = get_soft_joint_cbm(CONCEPT_NAMES, CONCEPT_NUM_CLASSES, num_classes=2, pretrained=True,
+                              diagnosis_head=diagnosis_head)
     model.to(device)
 
     diag_criterion = nn.CrossEntropyLoss(weight=class_weights)
     concept_criterion = build_concept_criteria(state_weights, device)
-    optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
+    optimizer = _build_optimizer(model, lr, weight_decay, diagnosis_lr)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs, eta_min=1e-6)
 
-    best_val_bacc = -1.0
+    best_score = -1.0
     best_epoch = -1
     history: List[Dict[str, float]] = []
     config = {
@@ -417,7 +529,7 @@ def run_m3_experiment(
         "protocol": M3_PROTOCOL,
         "backbone": "EfficientNet-B0",
         "pretrained_weights": "EfficientNet_B0_Weights.DEFAULT",
-        "diagnosis_head": "Linear(28, 2)",
+        "diagnosis_head": DIAGNOSIS_HEADS[diagnosis_head],
         "concept_heads": "Linear(1280, Ki) per concept",
         "epochs": epochs,
         "batch_size": batch_size,
@@ -437,7 +549,7 @@ def run_m3_experiment(
         "target_size": 224,
         "num_workers": num_workers,
         "scheduler": "CosineAnnealingLR(eta_min=1e-6)",
-        "checkpoint_selection": "validation_balanced_accuracy_at_0.5",
+        "checkpoint_selection": selection_name(checkpoint_metric),
         "threshold_selection": "maximize_validation_balanced_accuracy_tie_nearest_0.5",
         "torch_version": str(torch.__version__),
         "torchvision_version": str(torchvision.__version__),
@@ -446,10 +558,17 @@ def run_m3_experiment(
         "scikit_learn_version": str(sklearn.__version__),
         "platform": platform.platform(),
     }
+    if diagnosis_lr is not None:
+        config["diagnosis_learning_rate"] = diagnosis_lr
+        config["optimizer_parameter_groups"] = "concept_predictor_and_diagnosis_head"
+    if diagnosis_head == "mlp128":
+        config.update(diagnosis_hidden_dim=128, diagnosis_dropout=0.3,
+                      diagnosis_normalization="LayerNorm")
     manifest_sha256 = _manifest_hash(manifest_path)
 
     print("\n--- Bắt đầu huấn luyện M3 (Soft Joint CBM) ---")
     for epoch in range(1, epochs + 1):
+        learning_rates = [group["lr"] for group in optimizer.param_groups]
         train_loss, train_diag_loss, train_concept_loss, train_bacc = train_one_epoch(
             model, train_loader, diag_criterion, concept_criterion, concept_loss_weight, optimizer, device
         )
@@ -460,6 +579,7 @@ def run_m3_experiment(
         scheduler.step()
 
         val_bacc = val_metrics["balanced_accuracy"]
+        val_f1_macro = val_metrics["f1_macro"]
         val_f1_mel = val_metrics["f1_melanoma"]
         val_auc = val_metrics["roc_auc"] if val_metrics["roc_auc"] is not None else 0.0
         val_concept_f1 = val_concept_metrics["overall_f1_macro_all_defined"]
@@ -473,23 +593,29 @@ def run_m3_experiment(
             "validation_diagnosis_loss": val_diag_loss,
             "validation_concept_loss": val_concept_loss,
             "validation_balanced_accuracy_at_0.5": val_bacc,
+            "validation_f1_macro_at_0.5": val_f1_macro,
             "validation_f1_melanoma_at_0.5": val_f1_mel,
             "validation_roc_auc": val_auc,
             "validation_pr_auc": val_metrics["pr_auc"],
             "validation_concept_f1_macro_all_defined": val_concept_f1,
+            "learning_rates": learning_rates,
         })
 
-        is_best = val_bacc > best_val_bacc
+        # Diagnosis Macro F1 chọn checkpoint; concept F1 và BAcc là metrics riêng.
+        score = selection_score(val_metrics, checkpoint_metric)
+        is_best = score > best_score
         best_marker = " [BEST]" if is_best else ""
 
         if is_best:
-            best_val_bacc = val_bacc
+            best_score = score
             best_epoch = epoch
             torch.save({
                 "epoch": epoch,
                 "model_state_dict": model.state_dict(),
                 "optimizer_state_dict": optimizer.state_dict(),
                 "val_balanced_acc": val_bacc,
+                "val_f1_macro": val_f1_macro,
+                "selection_score": score,
                 "val_metrics": val_metrics,
                 "val_concept_metrics": val_concept_metrics,
                 "config": config,
@@ -502,10 +628,11 @@ def run_m3_experiment(
             f"Epoch [{epoch:02d}/{epochs:02d}] | "
             f"Train Loss: {train_loss:.4f} (Diag: {train_diag_loss:.4f}, Concept: {train_concept_loss:.4f}, BAcc: {train_bacc * 100:.2f}%) | "
             f"Valid Loss: {val_loss:.4f} | Valid BAcc: {val_bacc * 100:.2f}% | Valid F1-Mel: {val_f1_mel:.4f} | "
+            f"Valid Macro F1: {val_f1_macro:.4f} | "
             f"Valid AUC: {val_auc:.4f} | Valid Concept F1: {val_concept_f1:.4f}{best_marker}"
         )
 
-    print(f"\nHuấn luyện hoàn tất! Checkpoint tốt nhất tại Epoch {best_epoch:02d} (Valid Balanced Acc: {best_val_bacc * 100:.2f}%)")
+    print(f"\nHuấn luyện hoàn tất! Checkpoint tốt nhất tại Epoch {best_epoch:02d} (Valid {checkpoint_metric}@0.5: {best_score:.4f})")
     print(f"Checkpoint đã lưu tại: {checkpoint_path}")
 
     # Chọn threshold trên validation của checkpoint đã chọn, không đọc test.
@@ -536,7 +663,7 @@ def run_m3_experiment(
     )
 
     summary_text = (
-        f"M3 Soft Joint CBM (EfficientNet-B0 -> 7 concept heads -> g Linear)\n"
+        f"M3 Soft Joint CBM (EfficientNet-B0 -> 7 concept heads -> g {DIAGNOSIS_HEADS[diagnosis_head]})\n"
         f"Best Epoch: {best_epoch}/{epochs}\n"
         f"Training samples: 413, Valid: 203\n"
         f"Threshold selected on validation: {threshold:.6f}\n\n"
@@ -552,6 +679,7 @@ def run_m3_experiment(
         "manifest_fingerprint": manifest_fingerprint(manifest_path),
         "concept_schema": schema,
         "checkpoint_path": os.path.abspath(checkpoint_path),
+        "checkpoint_sha256": _manifest_hash(checkpoint_path),
         "decision_threshold": threshold,
         "summary": summary_text,
         "validation_metrics_at_0.5": val_metrics_at_05,
@@ -570,6 +698,7 @@ def run_m3_experiment(
     return results
 
 
+# Nạp frozen soft CBM/head/ngưỡng, chấm official test và giữ nguyên quyết định validation.
 def evaluate_m3_test(
     checkpoint_path: str,
     manifest_path: str = None,
@@ -578,7 +707,6 @@ def evaluate_m3_test(
     save_results: bool = True,
     overwrite: bool = False,
 ) -> Dict[str, Any]:
-    """One explicit final test evaluation using a frozen checkpoint and threshold."""
     if manifest_path is None:
         manifest_path = os.path.join(PROJECT_ROOT, "data", "manifest.csv")
     manifest_path = os.path.abspath(manifest_path)
@@ -595,7 +723,7 @@ def evaluate_m3_test(
     if not 0 <= threshold <= 1:
         raise ValueError("Invalid threshold in checkpoint")
     if results_path is None:
-        _, results_path = _default_paths(config["seed"], config["augmentation_preset"], config["concept_loss_weight"])
+        _, results_path = _config_paths(config)
     if save_results:
         _prepare_output(results_path, overwrite)
 
@@ -615,7 +743,8 @@ def evaluate_m3_test(
     test_loader = DataLoader(test_dataset, batch_size=config["batch_size"], shuffle=False, num_workers=0)
 
     model = get_soft_joint_cbm(schema["concept_names"], schema["concept_num_classes"], num_classes=2,
-                              pretrained=False, dropout=config.get("dropout", 0.2)).to(device)
+                              pretrained=False, dropout=config.get("dropout", 0.2),
+                              diagnosis_head=_head_preset(config)).to(device)
     load_soft_joint_cbm_state_dict(model, checkpoint["model_state_dict"])
     weights = torch.tensor(config["class_weights"], dtype=torch.float32, device=device)
     diag_criterion = nn.CrossEntropyLoss(weight=weights)
@@ -654,9 +783,9 @@ def evaluate_m3_test(
     return results
 
 
+# Ghép đúng checkpoint/export, thay soft groups bằng GT one-hot qua frozen head, lưu kết quả.
 def run_m3_intervention(checkpoint_path, predictions_path, manifest_path=None,
                         results_path=None, overwrite=False):
-    """Evaluate all 128 group subsets using the frozen weighted M3 test export."""
     manifest_path = os.path.abspath(manifest_path or str(Path(PROJECT_ROOT) / "data/manifest.csv"))
     checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
     validate_manifest(checkpoint, manifest_path)
@@ -696,9 +825,10 @@ def run_m3_intervention(checkpoint_path, predictions_path, manifest_path=None,
         probabilities.append([p for c in schema["concept_names"] for p in row["concept_probabilities"][c]])
         true_indices.append(targets)
         labels.append(row["y_true"])
-    head = nn.Linear(schema["total_states"], 2)
+    head = make_diagnosis_head(schema["total_states"], 2, _head_preset(checkpoint["config"]))
     state = checkpoint["model_state_dict"]
-    head.load_state_dict({"weight": state["diagnosis_head.weight"], "bias": state["diagnosis_head.bias"]})
+    head.load_state_dict({name.removeprefix("diagnosis_head."): value
+                          for name, value in state.items() if name.startswith("diagnosis_head.")})
     result = evaluate_soft_interventions(head, probabilities, true_indices, labels, schema, threshold, ids)
     if not np.allclose(result["baseline_y_prob"], [row["y_prob"] for row in rows], atol=1e-6, rtol=1e-5):
         raise ValueError("Export concept probabilities do not reproduce baseline diagnosis")
@@ -715,7 +845,7 @@ def run_m3_intervention(checkpoint_path, predictions_path, manifest_path=None,
                                               "scikit_learn_version": sklearn.__version__},
                    "checkpoint_path": os.path.abspath(checkpoint_path),
                    "predictions_path": os.path.abspath(predictions_path)})
-    results_path = results_path or str(Path(predictions_path).with_name(Path(predictions_path).stem + "_intervention.json"))
+    results_path = results_path or str(Path(predictions_path).parent / "intervention" / Path(predictions_path).name)
     if Path(results_path).resolve() in {Path(checkpoint_path).resolve(), Path(predictions_path).resolve(), Path(manifest_path).resolve()}:
         raise ValueError("Intervention output must not overwrite its inputs")
     _prepare_output(results_path, overwrite)
@@ -724,12 +854,18 @@ def run_m3_intervention(checkpoint_path, predictions_path, manifest_path=None,
     return result
 
 
+# Đọc mode train/test/intervention; --skip_test dừng sau validation, không chọn gì trên test.
 def main(argv=None):
-    parser = argparse.ArgumentParser(description="M3 weighted Soft Joint CBM: train → validation selection → automatic test; intervention")
+    parser = argparse.ArgumentParser(description="M3 weighted Soft Joint CBM: train → validation → frozen test, or --skip_test pilot; intervention")
     parser.add_argument("--mode", choices=["train", "test", "intervention"], default="train", help="train: train rồi tự động test; test: đánh giá checkpoint; intervention: can thiệp concepts")
+    parser.add_argument("--skip_test", action="store_true", help="Pilot: chỉ train/validation; dùng với --mode train")
     parser.add_argument("--epochs", type=int, default=DEFAULT_EPOCHS)
     parser.add_argument("--batch_size", type=int, default=DEFAULT_BATCH_SIZE)
     parser.add_argument("--lr", type=float, default=DEFAULT_LR)
+    parser.add_argument("--diagnosis_lr", type=float,
+                        help="LR riêng cho diagnosis head; không truyền thì dùng --lr cho toàn model")
+    parser.add_argument("--diagnosis_head", choices=list(DIAGNOSIS_HEADS), default="linear",
+                        help="linear: baseline; mlp128: Linear/LayerNorm/ReLU/Dropout/Linear")
     parser.add_argument("--weight_decay", type=float, default=DEFAULT_WEIGHT_DECAY)
     parser.add_argument(
         "--concept_loss_weight", type=float, default=DEFAULT_CONCEPT_LOSS_WEIGHT,
@@ -749,11 +885,18 @@ def main(argv=None):
     parser.add_argument("--predictions_path", type=str, default=None, help="JSON kết quả M3 chứa test_predictions để phân tích intervention")
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument("--no_save", action="store_true")
+    add_selection_argument(parser)
     args = parser.parse_args(argv)
+    if args.skip_test and args.mode != "train":
+        parser.error("--skip_test is only valid with --mode train")
+    defaults = _default_paths(
+        args.seed, args.augmentation_preset, args.concept_loss_weight, args.checkpoint_metric,
+        args.diagnosis_head, args.diagnosis_lr, args.epochs, args.lr, args.weight_decay,
+    )
 
     if args.mode == "train":
         checkpoint_path, results_path = prepare_training_outputs(
-            _default_paths(args.seed, args.augmentation_preset, args.concept_loss_weight),
+            defaults,
             args.checkpoint_path, args.results_path,
             args.overwrite, not args.no_save,
         )
@@ -771,21 +914,28 @@ def main(argv=None):
             augmentation_preset=args.augmentation_preset,
             overwrite=args.overwrite,
             num_workers=args.num_workers,
+            checkpoint_metric=args.checkpoint_metric,
+            diagnosis_head=args.diagnosis_head,
+            diagnosis_lr=args.diagnosis_lr,
         )
         if not args.no_save:
             save_experiment_results(results_path, validation=validation, overwrite=args.overwrite)
+        if args.skip_test:
+            return validation
         test = evaluate_m3_test(
             checkpoint_path=checkpoint_path, manifest_path=args.manifest_path,
             device_name=args.device,
             save_results=False, overwrite=args.overwrite,
         )
         if not args.no_save:
-            save_experiment_results(results_path, validation=validation, test=test, overwrite=True)
+            return save_experiment_results(results_path, validation=validation, test=test, overwrite=True)
+        return {**validation, **test, "mode": "train_validation_test"}
     elif args.mode == "test":
-        checkpoint_path = args.checkpoint_path or _default_paths(
-            args.seed, args.augmentation_preset, args.concept_loss_weight
-        )[0]
-        results_path = args.results_path or _default_paths(args.seed, args.augmentation_preset, args.concept_loss_weight)[1]
+        checkpoint_path = args.checkpoint_path or defaults[0]
+        results_path = args.results_path
+        if results_path is None:
+            config = torch.load(checkpoint_path, map_location="cpu", weights_only=True)["config"]
+            results_path = _config_paths(config)[1]
         if not args.no_save:
             _prepare_output(results_path, args.overwrite)
         test = evaluate_m3_test(
@@ -796,21 +946,18 @@ def main(argv=None):
             overwrite=args.overwrite,
         )
         if not args.no_save:
-            save_experiment_results(results_path, test=test, overwrite=args.overwrite)
+            return save_experiment_results(results_path, test=test, overwrite=args.overwrite)
+        return test
     else:
         if args.no_save:
             parser.error("--no_save is not supported for intervention mode")
-        checkpoint_path = args.checkpoint_path or _default_paths(
-            args.seed, args.augmentation_preset, args.concept_loss_weight
-        )[0]
+        checkpoint_path = args.checkpoint_path or defaults[0]
         checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
         config = checkpoint["config"]
         validate_m3_config(config)
-        predictions_path = args.predictions_path or _default_paths(
-            config["seed"], config["augmentation_preset"], config["concept_loss_weight"]
-        )[1]
-        run_m3_intervention(checkpoint_path, predictions_path, args.manifest_path,
-                            args.results_path, args.overwrite)
+        predictions_path = args.predictions_path or _config_paths(config)[1]
+        return run_m3_intervention(checkpoint_path, predictions_path, args.manifest_path,
+                                   args.results_path, args.overwrite)
 
 
 if __name__ == "__main__":
